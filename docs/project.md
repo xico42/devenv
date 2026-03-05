@@ -177,13 +177,13 @@ The provisioning is entirely declarative — a YAML template rendered at `devenv
 ### Phase 0 — Scaffold  *(sequential — blocks everything)*
 Internal packages must be built in this order (each depends on the previous):
 
-1. [ ] `go.mod` init + dependencies
-2. [ ] `internal/config` — TOML loading, env var overrides, profile resolution
-3. [ ] `internal/state` — JSON state read/write, `Clear()`
-4. [ ] `internal/do` — godo client + `DropletsService` interface
-5. [ ] `internal/provision` — cloud-init template rendering
-6. [ ] `cmd/root.go` — cobra root, persistent flags, config load on `PersistentPreRunE`
-7. [ ] Command stubs + Makefile + `.golangci.yml`
+1. [X] `go.mod` init + dependencies
+2. [X] `internal/config` — TOML loading, env var overrides, profile resolution
+3. [X] `internal/state` — JSON state read/write, `Clear()`
+4. [X] `internal/do` — godo client + `DropletsService` interface
+5. [X] `internal/provision` — cloud-init template rendering
+6. [X] `cmd/root.go` — cobra root, persistent flags, config load on `PersistentPreRunE`
+7. [X] Command stubs + Makefile + `.golangci.yml`
 
 See `docs/prds/prd-phase-00-scaffolding.md`.
 
