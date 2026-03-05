@@ -160,10 +160,10 @@ The user-data passed at creation time must:
 - Install mosh
 - Install tmux with a minimal config that auto-attaches on login
 - Install Node.js via mise + install Claude Code globally (`npm install -g @anthropic-ai/claude-code`)
-- Bootstrap `~/.claude/settings.json` for the `ubuntu` user with a `PostToolUse` hook that calls `devenv notify send` when Claude emits an `AskUserQuestion` tool use (see `docs/prds/prd-cmd-notify.md` for the hook script spec)
+- Bootstrap `~/.claude/settings.json` for the `ubuntu` user with a `PostToolUse` hook that calls `devenv notify send` when Claude emits an `AskUserQuestion` tool use (see `docs/prds/prd-phase-01-cmd-notify.md` for the hook script spec)
 - Set hostname to the droplet name
 
-See `docs/prds/prd-scaffolding.md` for the template location (`internal/provision/templates/user-data.yaml.tmpl`).
+See `docs/prds/prd-phase-00-scaffolding.md` for the template location (`internal/provision/templates/user-data.yaml.tmpl`).
 
 ---
 

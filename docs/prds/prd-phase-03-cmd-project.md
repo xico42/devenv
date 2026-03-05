@@ -117,5 +117,5 @@ Cloning api...     ✓
 ## Implementation Notes
 
 - All remote operations are SSH commands over the Tailscale IP using the same connection logic as `devenv ssh`
-- `git clone` on the droplet uses the git identity copied by `devenv up` (see `prd-cmd-up.md`)
+- `git clone` on the droplet uses the git identity copied by `devenv up` (see `prd-phase-01-cmd-up.md`)
 - Project config is local-only — there is no sync of project definitions to the droplet

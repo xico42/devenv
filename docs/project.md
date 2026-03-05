@@ -139,7 +139,7 @@ Every droplet is provisioned with:
 - **mosh**: installed
 - **tmux**: installed with auto-attach configuration
 - **Claude Code**: installed via npm (`@anthropic-ai/claude-code`)
-- **Claude Code hooks**: `~/.claude/settings.json` bootstrapped with a `PostToolUse` hook that calls `devenv notify send` when Claude requests user input (see `docs/prds/prd-cmd-notify.md`)
+- **Claude Code hooks**: `~/.claude/settings.json` bootstrapped with a `PostToolUse` hook that calls `devenv notify send` when Claude requests user input (see `docs/prds/prd-phase-01-cmd-notify.md`)
 
 The provisioning is entirely declarative — a YAML template rendered at `devenv up` time and passed as user-data to the droplet.
 
@@ -185,7 +185,7 @@ Internal packages must be built in this order (each depends on the previous):
 6. [ ] `cmd/root.go` — cobra root, persistent flags, config load on `PersistentPreRunE`
 7. [ ] Command stubs + Makefile + `.golangci.yml`
 
-See `docs/prds/prd-scaffolding.md`.
+See `docs/prds/prd-phase-00-scaffolding.md`.
 
 ---
 
@@ -193,12 +193,12 @@ See `docs/prds/prd-scaffolding.md`.
 
 All commands depend only on `internal/` packages built in Phase 0. None depend on each other.
 
-- [ ] `devenv config` — `internal/config` only (see `docs/prds/prd-cmd-config.md`)
-- [ ] `devenv up` — `internal/config` + `state` + `do` + `provision` (see `docs/prds/prd-cmd-up.md`)
-- [ ] `devenv down` — `internal/config` + `state` + `do` (see `docs/prds/prd-cmd-down.md`)
-- [ ] `devenv status` — `internal/config` + `state` + `do` (see `docs/prds/prd-cmd-status.md`)
-- [ ] `devenv ssh` — `internal/config` + `state` only; `syscall.Exec` pattern (see `docs/prds/prd-cmd-ssh.md`)
-- [ ] `devenv notify` (setup / test / status / send) — `internal/config` + HTTP client only; no droplet required (see `docs/prds/prd-cmd-notify.md`)
+- [ ] `devenv config` — `internal/config` only (see `docs/prds/prd-phase-01-cmd-config.md`)
+- [ ] `devenv up` — `internal/config` + `state` + `do` + `provision` (see `docs/prds/prd-phase-01-cmd-up.md`)
+- [ ] `devenv down` — `internal/config` + `state` + `do` (see `docs/prds/prd-phase-01-cmd-down.md`)
+- [ ] `devenv status` — `internal/config` + `state` + `do` (see `docs/prds/prd-phase-01-cmd-status.md`)
+- [ ] `devenv ssh` — `internal/config` + `state` only; `syscall.Exec` pattern (see `docs/prds/prd-phase-01-cmd-ssh.md`)
+- [ ] `devenv notify` (setup / test / status / send) — `internal/config` + HTTP client only; no droplet required (see `docs/prds/prd-phase-01-cmd-notify.md`)
 
 ---
 
@@ -206,7 +206,7 @@ All commands depend only on `internal/` packages built in Phase 0. None depend o
 
 Wraps Phase 1 commands. Depends on all `internal/` packages and the `syscall.Exec` pattern from `devenv ssh`.
 
-- [ ] Interactive Bubble Tea v2 dashboard (see `docs/prds/prd-tui.md`)
+- [ ] Interactive Bubble Tea v2 dashboard (see `docs/prds/prd-phase-02-tui.md`)
 
 ---
 
@@ -218,10 +218,10 @@ New shared package for running SSH commands on the droplet programmatically (cap
 
 #### Step 2 — Agent commands  *(all parallel after `internal/remote`)*
 
-- [ ] `devenv project` — project config + clone via `internal/remote` (see `docs/prds/prd-cmd-project.md`)
-- [ ] `devenv worktree` — git worktree management via `internal/remote`; `shell` uses `syscall.Exec` (see `docs/prds/prd-cmd-worktree.md`)
-- [ ] `devenv session` — tmux session lifecycle via `internal/remote`; `attach` uses `syscall.Exec`; session state files at `~/.local/share/devenv/sessions/` on droplet (see `docs/prds/prd-cmd-session.md`)
-- [ ] `devenv notify --session` flag + `devenv session mark-running` — extends Phase 1 notify with session state file writes; adds PreToolUse hook to `settings.json` template (see `docs/prds/prd-cmd-notify.md`, `docs/prds/prd-cmd-session.md`)
+- [ ] `devenv project` — project config + clone via `internal/remote` (see `docs/prds/prd-phase-03-cmd-project.md`)
+- [ ] `devenv worktree` — git worktree management via `internal/remote`; `shell` uses `syscall.Exec` (see `docs/prds/prd-phase-03-cmd-worktree.md`)
+- [ ] `devenv session` — tmux session lifecycle via `internal/remote`; `attach` uses `syscall.Exec`; session state files at `~/.local/share/devenv/sessions/` on droplet (see `docs/prds/prd-phase-03-cmd-session.md`)
+- [ ] `devenv notify --session` flag + `devenv session mark-running` — extends Phase 1 notify with session state file writes; adds PreToolUse hook to `settings.json` template (see `docs/prds/prd-phase-01-cmd-notify.md`, `docs/prds/prd-phase-03-cmd-session.md`)
 
 ---
 

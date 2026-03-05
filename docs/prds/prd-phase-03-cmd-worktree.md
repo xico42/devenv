@@ -55,7 +55,7 @@ devenv worktree list
   api        develop       ~/projects/api              —
 ```
 
-SSHes into the droplet and runs `git worktree list` for each project clone. SESSION column is populated from active tmux sessions (see `prd-cmd-session.md`).
+SSHes into the droplet and runs `git worktree list` for each project clone. SESSION column is populated from active tmux sessions (see `prd-phase-03-cmd-session.md`).
 
 ---
 

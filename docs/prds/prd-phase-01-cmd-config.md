@@ -234,7 +234,7 @@ Environment variables take precedence over the config file but are overridden by
 
 ## Implementation Notes
 
-- `config init` should use Bubble Tea v2 for the interactive prompts (consistent with the TUI). See `docs/prds/prd-tui.md`.
+- `config init` should use Bubble Tea v2 for the interactive prompts (consistent with the TUI). See `docs/prds/prd-phase-02-tui.md`.
 - The `set` and `get` subcommands are designed for scripting — no prompts, clean single-line output.
 - Config file is read once at startup (in `root.go`'s `PersistentPreRunE`) and injected into the cobra context. Subcommands do not re-read it.
 - `config set` re-reads the file before writing to avoid clobbering concurrent changes.

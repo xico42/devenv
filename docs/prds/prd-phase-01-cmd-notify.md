@@ -191,7 +191,7 @@ If unconfigured:
 }
 ```
 
-The PostToolUse hook fires every time Claude emits an `AskUserQuestion` tool use. `$CLAUDE_TOOL_INPUT_QUESTION` is set by Claude Code and contains the question text. `$DEVENV_SESSION` is set by `devenv session start` in the tmux environment and identifies the session (see `prd-cmd-session.md`).
+The PostToolUse hook fires every time Claude emits an `AskUserQuestion` tool use. `$CLAUDE_TOOL_INPUT_QUESTION` is set by Claude Code and contains the question text. `$DEVENV_SESSION` is set by `devenv session start` in the tmux environment and identifies the session (see `prd-phase-03-cmd-session.md`).
 
 The PreToolUse hook fires before every tool use to reset session status back to `running` when Claude resumes after a question. Both hooks are fire-and-forget and exit 0 on failure.
 
