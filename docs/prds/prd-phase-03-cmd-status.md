@@ -1,8 +1,10 @@
-# PRD: `devenv status`
+# PRD: `devenv status` (Phase 3 — Infrastructure)
 
 ## Overview
 
 The `status` command displays information about the currently active droplet: its name, IPs, region, size, uptime, and estimated cost so far. It reads from both local state and the DO API to show live status.
+
+**Plane:** Infrastructure (runs on local machine only).
 
 ---
 
@@ -44,8 +46,8 @@ Reads local state, then makes a single `godo.DropletsService.Get` call to fetch 
 
 ```
 devenv-20260304-143012
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Status:    ● active
+----
+  Status:    active
   Region:    nyc3
   Size:      s-2vcpu-4gb (2 vCPU / 4 GB RAM)
   Profile:   default
@@ -58,13 +60,7 @@ devenv-20260304-143012
 
   SSH:       ssh ubuntu@100.x.y.z
   Mosh:      mosh ubuntu@100.x.y.z
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
-
-Status indicator uses color:
-- `● active` — green
-- `● provisioning` — yellow
-- `● off` — red
 
 ### `--json` output
 
@@ -88,15 +84,6 @@ Status indicator uses color:
 
 Clears the terminal and re-renders the status block every `--refresh-interval`. Press `q` or `Ctrl+C` to exit.
 
-```
-devenv-20260304-143012                  Last updated: 15:53:42
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Status:    ● active
-  ...
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[q] quit
-```
-
 ---
 
 ## Error Cases
@@ -111,7 +98,7 @@ devenv-20260304-143012                  Last updated: 15:53:42
 
 ## Implementation Notes
 
-- `--watch` mode does NOT use Bubble Tea — it uses simple terminal clear + reprint. The TUI PRD handles the interactive dashboard.
+- `--watch` mode does NOT use Bubble Tea — it uses simple terminal clear + reprint.
 - The `--json` flag should always exit immediately (no `--watch` combination).
 - `--watch` and `--json` together should error: `Error: --watch and --json cannot be used together`.
 - Uptime and cost are derived from `state.created_at` — no additional API calls needed for those fields.

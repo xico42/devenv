@@ -1,8 +1,10 @@
-# PRD: `devenv down`
+# PRD: `devenv down` (Phase 3 — Infrastructure)
 
 ## Overview
 
 The `down` command destroys the active droplet tracked in local state, removes all associated resources, and clears the state file. It is the counterpart to `devenv up`.
+
+**Plane:** Infrastructure (runs on local machine only).
 
 ---
 
@@ -62,7 +64,7 @@ Destroying devenv-20260304-143012 (nyc3, s-2vcpu-4gb)...
 
 Type the droplet name to confirm: devenv-20260304-143012
 
-Deleting droplet...  ✓
+Deleting droplet...  done
 State cleared.
 
 Droplet destroyed. Session duration: 1h 23m. Estimated cost: $0.08.
@@ -72,7 +74,7 @@ Droplet destroyed. Session duration: 1h 23m. Estimated cost: $0.08.
 
 ```
 Destroying devenv-20260304-143012 (nyc3, s-2vcpu-4gb)...
-Deleting droplet...  ✓
+Deleting droplet...  done
 State cleared.
 
 Droplet destroyed. Session duration: 1h 23m. Estimated cost: $0.08.
@@ -82,8 +84,8 @@ Droplet destroyed. Session duration: 1h 23m. Estimated cost: $0.08.
 
 ```
 Destroying devenv-20260304-143012 (nyc3, s-2vcpu-4gb)...
-Saving snapshot devenv-snapshot-20260304-153512... ✓  (2m 14s)
-Deleting droplet...  ✓
+Saving snapshot devenv-snapshot-20260304-153512... done  (2m 14s)
+Deleting droplet...  done
 State cleared.
 
 Droplet destroyed. Snapshot saved: devenv-snapshot-20260304-153512 (id: 987654321)
@@ -111,7 +113,7 @@ No active devenv droplet found.
 ## Cost Estimation
 
 The estimated cost displayed at the end is calculated from:
-- `state.created_at` → now = session duration in fractional hours
+- `state.created_at` -> now = session duration in fractional hours
 - Droplet size hourly rate (hard-coded lookup table of common sizes, or fetched from DO sizes API at `up` time and stored in state)
 
 This is an estimate only. Actual billing is handled by Digital Ocean.

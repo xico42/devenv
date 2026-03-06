@@ -1,8 +1,10 @@
-# PRD: `devenv up`
+# PRD: `devenv up` (Phase 3 — Infrastructure)
 
 ## Overview
 
 The `up` command creates a new Digital Ocean droplet, waits for it to become active, and then waits for cloud-init provisioning to complete. It writes the droplet details to local state so other commands can reference it.
+
+**Plane:** Infrastructure (runs on local machine only).
 
 ---
 
@@ -46,7 +48,7 @@ Before creating anything, `up` must:
 
 ### Droplet creation
 
-1. Render cloud-init user-data from template (see `internal/provision`)
+1. Render cloud-init user-data from template (see `internal/provision` and `docs/prds/prd-phase-02-cloud-init.md`)
 2. Call `godo.DropletsService.Create` with:
    - Name: `devenv-YYYYMMDD-HHMMSS` (or `--name` value)
    - Region: resolved region slug
@@ -71,11 +73,11 @@ Unless `--no-wait`:
 ### Output (success)
 
 ```
-Creating droplet devenv-20260304-143012...  ✓
-Waiting for droplet to become active...      ✓  (23s)
-Waiting for Tailscale IP...                  ✓  100.x.y.z
-Waiting for SSH...                           ✓
-Copying git identity...                      ✓  ~/.ssh/id_ed25519
+Creating droplet devenv-20260304-143012...  done
+Waiting for droplet to become active...      done  (23s)
+Waiting for Tailscale IP...                  done  100.x.y.z
+Waiting for SSH...                           done
+Copying git identity...                      done  ~/.ssh/id_ed25519
 
   Droplet:  devenv-20260304-143012
   Region:   nyc3
@@ -117,7 +119,7 @@ Ready. Run 'devenv ssh' to connect.
 For each parameter (size, region, image), resolution order (highest to lowest priority):
 
 1. CLI flag (`--size`, `--region`)
-2. Named profile (`--profile heavy` → `[profiles.heavy]` in config)
+2. Named profile (`--profile heavy` -> `[profiles.heavy]` in config)
 3. `[defaults]` in config
 4. Built-in fallbacks: region=`nyc3`, size=`s-2vcpu-4gb`, image=`ubuntu-24-04-x64`
 
@@ -125,13 +127,13 @@ For each parameter (size, region, image), resolution order (highest to lowest pr
 
 ## Git Identity
 
-If `defaults.git_identity_file` is set in config, `devenv up` copies the private key to the droplet after SSH is ready. This enables `git clone` via SSH for any host the key is registered with (GitHub, GitLab, etc.).
+If `defaults.git_identity_file` is set in config, `devenv up` copies the private key to the droplet after SSH is ready. This enables `git clone` via SSH on the droplet.
 
 ### Config
 
 ```toml
 [defaults]
-git_identity_file = "~/.ssh/id_ed25519"   # path to private key on local machine
+git_identity_file = "~/.ssh/id_ed25519"
 ```
 
 ### Behavior
@@ -139,7 +141,7 @@ git_identity_file = "~/.ssh/id_ed25519"   # path to private key on local machine
 - The private key is copied to `~ubuntu/.ssh/` on the droplet via `scp` over Tailscale
 - Permissions are set to `600` on the remote file
 - The corresponding `.pub` file is also copied if it exists alongside the private key
-- `~/.ssh/config` on the droplet is written with `StrictHostKeyChecking=accept-new` so the first `git clone` doesn't prompt
+- `~/.ssh/config` on the droplet is written with `StrictHostKeyChecking=accept-new`
 - Both copy steps are non-fatal: failure prints a warning and `devenv up` exits 0
 
 ### Security
@@ -152,18 +154,7 @@ git_identity_file = "~/.ssh/id_ed25519"   # path to private key on local machine
 
 ## Cloud-Init Requirements
 
-The user-data passed at creation time must:
-
-- Install Docker (stable channel) and add the `ubuntu` user to the `docker` group
-- Install mise globally (`/usr/local/bin/mise`)
-- Install Tailscale and authenticate with `tailscale_auth_key` from config
-- Install mosh
-- Install tmux with a minimal config that auto-attaches on login
-- Install Node.js via mise + install Claude Code globally (`npm install -g @anthropic-ai/claude-code`)
-- Bootstrap `~/.claude/settings.json` for the `ubuntu` user with a `PostToolUse` hook that calls `devenv notify send` when Claude emits an `AskUserQuestion` tool use (see `docs/prds/prd-phase-01-cmd-notify.md` for the hook script spec)
-- Set hostname to the droplet name
-
-See `docs/prds/prd-phase-00-scaffolding.md` for the template location (`internal/provision/templates/user-data.yaml.tmpl`).
+See `docs/prds/prd-phase-02-cloud-init.md` for the full cloud-init template specification.
 
 ---
 
@@ -191,3 +182,4 @@ On success, `~/.local/share/devenv/state.json`:
 - All polling loops must respect `context.WithTimeout` and return clean errors on timeout
 - The Tailscale IP polling step may be the most uncertain — consider a fallback of connecting via public IP if Tailscale IP is unavailable after timeout, logging a warning
 - DO NOT use `time.Sleep` in a busy loop — use a ticker
+- The SCP step for git identity uses `os/exec` to call the `scp` binary (not `internal/remote` — that package no longer exists)

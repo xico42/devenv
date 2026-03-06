@@ -40,22 +40,34 @@ This enforces a minimum of 80% aggregate test coverage across all packages. The 
 
 ## Architecture
 
+### Command planes
+
+Commands are split into two planes:
+
+- **Infrastructure** (`up`, `down`, `status`, `ssh`, `config`, `notify setup/test/status`) — runs on local machine, interacts with DO API
+- **Workload** (`project`, `worktree`, `session`, `notify send`) — runs anywhere (droplet or local), executes git/tmux/filesystem directly, no SSH
+
+Workload commands have no awareness of whether they're on a droplet or a laptop. They operate on `projects_dir` (configurable, default `~/projects`) and local tmux.
+
 ### Package layout
 
 - **`main.go`** — entrypoint; delegates to `cmd.Execute()`; `version` var set via `-ldflags`
 - **`cmd/`** — Cobra commands; `root.go` wires `PersistentPreRunE` to load config; each command is a separate file
-- **`internal/config`** — TOML config at `~/.config/devenv/config.toml`; `Load()` returns defaults on missing file; `ApplyEnv()` overlays env vars; `ApplyFlags()` overlays CLI flags
-- **`internal/state`** — JSON state at `~/.local/share/devenv/state.json`; tracks active droplet ID, Tailscale IP, etc.; `Load/Save/Clear` functions
+- **`internal/config`** — TOML config at `~/.config/devenv/config.toml`; `Load()` returns defaults on missing file; `ApplyEnv()` overlays env vars; `ApplyFlags()` overlays CLI flags; includes `[projects]`, `[notify]`, `projects_dir`; `RepoPath()` derives filesystem paths from git URLs (e.g. `git@github.com:user/myapp.git` → `github.com/user/myapp`)
+- **`internal/state`** — JSON state at `~/.local/share/devenv/state.json`; tracks active droplet ID, Tailscale IP, etc.; `Load/Save/Clear` for droplet state; `LoadSession/SaveSession/ClearSession/ListSessions` for session state files at `~/.local/share/devenv/sessions/`
 - **`internal/do`** — thin wrapper around godo; `DropletsService` interface enables mocking in tests; `Client{Droplets: ...}` struct
 - **`internal/provision`** — renders cloud-init user-data via `embed.FS` + `text/template`; template at `internal/provision/templates/user-data.yaml.tmpl`
-- **`internal/remote`** — `Client` interface for running SSH commands programmatically (stdout/stderr capture); `Dial()` returns an `sshClient`; distinct from `devenv ssh` which does `syscall.Exec`
+- **`internal/envtemplate`** — processes `.env.template` files with Go `text/template`; custom funcs: `port "name"` (deterministic FNV-1a hash), `env "VAR" "default"`; generates `.env` for worktrees
+
+Note: there is no `internal/remote` package. Workload commands execute locally.
 
 ### Config and state paths (XDG-compliant)
 
 | Purpose | Path |
 |---|---|
 | Config | `~/.config/devenv/config.toml` |
-| State | `~/.local/share/devenv/state.json` |
+| Droplet state | `~/.local/share/devenv/state.json` |
+| Session state | `~/.local/share/devenv/sessions/<name>.json` |
 | Binary | `~/.local/bin/devenv` |
 
 ### Key design patterns
@@ -63,14 +75,19 @@ This enforces a minimum of 80% aggregate test coverage across all packages. The 
 - **Mocking**: `internal/do` exposes `DropletsService` interface so tests use a `mockDroplets` struct without real API calls
 - **Missing file = empty defaults**: both `config.Load()` and `state.Load()` return zero-value structs (not errors) when the file doesn't exist
 - **`syscall.Exec` for interactive commands**: `devenv ssh`, `devenv worktree shell`, `devenv session attach` replace the process rather than spawning a child
+- **Local execution**: workload commands run git/tmux via `os/exec` on the local machine — no SSH indirection
 - **Integration tests**: tagged with `//go:build integration` and run separately via `make test-integration`; require real DO credentials
 
 ### Droplet provisioning
 
-Cloud-init template (`internal/provision/templates/user-data.yaml.tmpl`) installs: Docker, mise, Tailscale (auth via `TailscaleAuthKey`), mosh, tmux, Claude Code, and Claude Code hooks that call `devenv notify send`.
+Cloud-init template (`internal/provision/templates/user-data.yaml.tmpl`) installs: Docker, mise, Tailscale (auth via `TailscaleAuthKey`), mosh, tmux (with devenv-specific config, status bar, keybindings), devenv binary, Claude Code, and Claude Code hooks that call `devenv notify send` and `devenv session mark-running`.
 
 ### Implementation phases
 
-See `docs/project.md` for the full roadmap. Phase 0 (scaffold) is complete. Phase 1 commands (`up`, `down`, `status`, `ssh`, `config`, `notify`) are next — they are all independent and can be implemented in parallel.
+See `docs/project.md` for the full roadmap.
 
-Phase 3 commands (`project`, `worktree`, `session`) require `internal/remote` and are also parallel after that prerequisite.
+- **Phase 0** (scaffold) — DONE
+- **Phase 1** (adapt scaffold) — sequential: remove `internal/remote`, extend config with `[projects]`, `[notify]`, `projects_dir`, add `RepoPath()` URL→path helper, add session state types
+- **Phase 2** (core commands) — ALL PARALLEL after Phase 1: infrastructure commands (`config`, `up`, `down`, `status`, `ssh`, `notify`), workload commands (`project`, `worktree`, `session`), env templates, and cloud-init template
+- **Phase 3** (composite) — `devenv setup` one-command start-to-work
+- **Phase 4** (optional) — remote Bubble Tea TUI

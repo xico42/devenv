@@ -1,8 +1,10 @@
-# PRD: `devenv ssh`
+# PRD: `devenv ssh` (Phase 3 — Infrastructure)
 
 ## Overview
 
 The `ssh` command connects to the active droplet via SSH (using the Tailscale IP by default). It is a thin wrapper that constructs and execs the correct SSH invocation so the user doesn't need to remember IPs or usernames.
+
+**Plane:** Infrastructure (runs on local machine only).
 
 ---
 
@@ -31,7 +33,6 @@ Everything after `--` is passed as a remote command to execute non-interactively
 ```bash
 devenv ssh -- "tmux list-sessions"
 devenv ssh -- "docker ps"
-devenv ssh -- "tail -f ~/project/logs/app.log"
 ```
 
 ### Inherited flags (from root)
@@ -75,11 +76,7 @@ mosh ubuntu@100.x.y.z -- tmux new-session -A -s main
 
 ### `--print` mode
 
-Prints the command that would be executed, without executing it. Useful for scripting or debugging:
-
-```
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@100.x.y.z -t tmux new-session -A -s main
-```
+Prints the command that would be executed, without executing it. Useful for scripting or debugging.
 
 ### Remote command mode (`-- <command>`)
 
@@ -92,9 +89,7 @@ When a remote command is provided:
 
 ## Output
 
-This command produces no decorative output when executing normally — it simply hands off to SSH/mosh. The goal is to feel transparent, like typing `ssh` directly.
-
-Only error conditions produce output.
+This command produces no decorative output when executing normally — it simply hands off to SSH/mosh. Only error conditions produce output.
 
 ---
 
@@ -113,7 +108,7 @@ Only error conditions produce output.
 
 `StrictHostKeyChecking=no` and `UserKnownHostsFile=/dev/null` are intentional defaults because:
 - Droplets are ephemeral — the host key changes every time
-- Tailscale provides the trust layer (you can only reach the Tailscale IP if you're on the same Tailscale network)
+- Tailscale provides the trust layer
 - Persistent `known_hosts` entries for ephemeral IPs cause confusing "host key changed" errors
 
 ---
@@ -122,4 +117,4 @@ Only error conditions produce output.
 
 - Use `syscall.Exec` (Unix exec, not `os/exec`) to replace the devenv process with SSH. This ensures signals (Ctrl+C, Ctrl+Z, window resize SIGWINCH) are handled naturally by SSH, not by devenv.
 - On non-Unix systems (Windows), fall back to `os/exec` and document the limitation.
-- The `--identity` flag maps to SSH's `-i` flag. When not set, rely on the SSH agent / default key discovery (`~/.ssh/id_ed25519`, etc.).
+- The `--identity` flag maps to SSH's `-i` flag. When not set, rely on the SSH agent / default key discovery.
