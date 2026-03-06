@@ -212,6 +212,14 @@ Session names use the **config name** (not filesystem path): `myapp-feature`. Th
 
 ---
 
+## Dependencies
+
+- `internal/envtemplate` package (from `prd-phase-02-env.md`) — must be implemented before this command. Used by:
+  - `worktree new`: calls `envtemplate.Process` after creating the worktree if a template exists
+  - `worktree env`: calls `envtemplate.Process` and writes/prints the result
+
+---
+
 ## Implementation Notes
 
 - All operations are local filesystem + git commands — no SSH, no droplet state check

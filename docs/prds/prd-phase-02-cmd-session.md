@@ -216,6 +216,12 @@ Written to `~/.local/share/devenv/sessions/<session-name>.json` by devenv comman
 
 ---
 
+## Dependencies
+
+- `internal/envtemplate` package (from `prd-phase-02-env.md`) — `ParseEnvFile` is used by `session start --export-env` to read the worktree's `.env` and inject variables into the tmux session.
+
+---
+
 ## Implementation Notes
 
 - All tmux operations use `os/exec` to run `tmux` commands directly — no SSH

@@ -6,6 +6,8 @@ Environment template processing generates `.env` files for worktrees, solving po
 
 **Plane:** Workload (runs anywhere — no SSH, no droplet required).
 
+**Scope:** This PRD covers only the `internal/envtemplate` package — a pure library with no CLI wiring. The CLI integration points (`devenv worktree env`, `devenv worktree new` env step, `devenv session start --export-env`) are implemented by their respective command PRDs, which depend on this package.
+
 ---
 
 ## Problem
@@ -122,6 +124,8 @@ Branch names are used as-is for hashing (e.g. `feature/login`). The hash input u
 ---
 
 ## Integration Points
+
+> These sections describe how the package is consumed by other commands. Implementation of the CLI wiring lives in `prd-phase-02-cmd-worktree.md` and `prd-phase-02-cmd-session.md`, not here.
 
 ### `devenv worktree new <project> <branch>`
 
