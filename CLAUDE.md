@@ -30,6 +30,14 @@ Build with version embedded (done automatically via Makefile):
 go build -ldflags "-s -w -X main.version=$(git describe --tags --always)" -o devenv .
 ```
 
+## Git worktrees
+
+Worktrees for this project live at `~/.config/superpowers/worktrees/remote-dev/<branch-name>`.
+
+```bash
+git worktree add ~/.config/superpowers/worktrees/remote-dev/<branch> -b <branch>
+```
+
 ## Coverage requirement
 
 Before marking any task complete, run:

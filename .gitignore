@@ -3,3 +3,4 @@ devenv
 .env
 *.toml.local
 coverage.out
+vendor/
