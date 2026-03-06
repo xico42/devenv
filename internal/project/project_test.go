@@ -267,3 +267,11 @@ func TestCloneAll_Empty(t *testing.T) {
 		t.Errorf("got %d results, want 0", len(results))
 	}
 }
+
+func TestAlreadyClonedError_Error(t *testing.T) {
+	err := &project.AlreadyClonedError{Path: "/home/user/projects/myapp"}
+	want := "/home/user/projects/myapp already exists, skipping"
+	if err.Error() != want {
+		t.Errorf("Error() = %q, want %q", err.Error(), want)
+	}
+}

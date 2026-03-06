@@ -113,6 +113,21 @@ func TestClear(t *testing.T) {
 	}
 }
 
+// TestSave_WriteError exercises the WriteFile error branch in Save by using a
+// directory path where a file is expected.
+func TestSave_WriteError(t *testing.T) {
+	dir := t.TempDir()
+	// Create a directory at the path where Save would write the file.
+	statePath := filepath.Join(dir, "state.json")
+	if err := os.Mkdir(statePath, 0o700); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	err := state.Save(statePath, &state.State{DropletID: 1})
+	if err == nil {
+		t.Fatal("Save() on directory path = nil, want error")
+	}
+}
+
 // TestLoad_EmptyPath exercises the defaultPath / resolvePath("") code path.
 // When path is "" Load resolves to the XDG default; as long as no state file
 // exists there it should return empty defaults.
@@ -179,4 +194,23 @@ func TestClear_EmptyPath(t *testing.T) {
 	// Acceptable outcomes: nil (file not found) or an error (e.g. remove failed).
 	// We just verify no panic occurs.
 	_ = err
+}
+
+// TestClear_RemoveError exercises the non-ErrNotExist remove error branch by
+// placing a directory where the state file is expected.
+func TestClear_RemoveError(t *testing.T) {
+	dir := t.TempDir()
+	// A directory named "state.json" will cause os.Remove to fail (EISDIR on Linux).
+	statePath := filepath.Join(dir, "state.json")
+	// Create a non-empty directory so os.Remove definitely fails.
+	if err := os.Mkdir(statePath, 0o700); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(statePath, "x"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	err := state.Clear(statePath)
+	if err == nil {
+		t.Fatal("Clear() on non-empty directory = nil, want error")
+	}
 }

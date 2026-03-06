@@ -1,20 +1,213 @@
 package cmd
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"os"
+	"syscall"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+
+	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/devenv/internal/worktree"
 )
+
+func newWorktreeService() *worktree.Service {
+	return worktree.NewService(cfg, worktree.NewRealWorktreeRunner(), tmux.NewClient(tmux.NewRealRunner()))
+}
 
 var worktreeCmd = &cobra.Command{
 	Use:   "worktree",
-	Short: "Manage git worktrees on the active droplet",
+	Short: "Manage git worktrees for configured projects",
+}
+
+// ── list ─────────────────────────────────────────────────────────────────────
+
+var worktreeListCmd = &cobra.Command{
+	Use:   "list [project]",
+	Short: "List worktrees (all projects, or a single project)",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("not implemented")
+		project := ""
+		if len(args) == 1 {
+			project = args[0]
+		}
+		svc := newWorktreeService()
+		entries, err := svc.List(project)
+		if err != nil {
+			return fmt.Errorf("list: %w", err)
+		}
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "PROJECT\tBRANCH\tPATH\tSESSION")
+		for _, e := range entries {
+			session := e.Session
+			if session == "" {
+				session = "--"
+			}
+			branch := e.Branch
+			if branch == "" {
+				branch = "(detached)"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Project, branch, e.Path, session)
+		}
+		return w.Flush()
+	},
+}
+
+// ── new ──────────────────────────────────────────────────────────────────────
+
+var worktreeNewCmd = &cobra.Command{
+	Use:   "new <project> <branch>",
+	Short: "Create a new worktree for a project",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		project, branch := args[0], args[1]
+		fmt.Fprintf(cmd.OutOrStdout(), "Creating worktree %s/%s...  ", project, branch)
+
+		svc := newWorktreeService()
+		result, err := svc.New(project, branch)
+		if err != nil {
+			fmt.Fprintln(cmd.OutOrStdout())
+			return worktreeErr(cmd, project, branch, err)
+		}
+
+		fmt.Fprintln(cmd.OutOrStdout(), "done")
+		fmt.Fprintf(cmd.OutOrStdout(), "  Path: %s\n", result.Path)
+		if result.EnvWritten {
+			fmt.Fprintf(cmd.OutOrStdout(), "  Env:  %s/.env\n", result.Path)
+		}
 		return nil
 	},
 }
 
+// ── delete ───────────────────────────────────────────────────────────────────
+
+var worktreeForce bool
+
+var worktreeDeleteCmd = &cobra.Command{
+	Use:   "delete <project> <branch>",
+	Short: "Delete a worktree",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		project, branch := args[0], args[1]
+
+		if !worktreeForce {
+			fmt.Fprintf(cmd.OutOrStdout(), "Delete worktree %s/%s? [y/N] ", project, branch)
+			scanner := bufio.NewScanner(cmd.InOrStdin())
+			scanner.Scan()
+			if scanner.Text() != "y" && scanner.Text() != "Y" {
+				fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+				return nil
+			}
+		}
+
+		fmt.Fprintf(cmd.OutOrStdout(), "Deleting worktree %s/%s...  ", project, branch)
+		svc := newWorktreeService()
+		err := svc.Delete(worktree.DeleteRequest{
+			Project: project,
+			Branch:  branch,
+			Force:   worktreeForce,
+		})
+		if err != nil {
+			fmt.Fprintln(cmd.OutOrStdout())
+			return worktreeErr(cmd, project, branch, err)
+		}
+
+		fmt.Fprintln(cmd.OutOrStdout(), "done")
+		return nil
+	},
+}
+
+// ── shell ─────────────────────────────────────────────────────────────────────
+
+var worktreeShellCmd = &cobra.Command{
+	Use:   "shell <project> <branch>",
+	Short: "Open an interactive shell in a worktree",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		project, branch := args[0], args[1]
+		svc := newWorktreeService()
+		path, err := svc.WorktreePath(project, branch)
+		if err != nil {
+			return worktreeErr(cmd, project, branch, err)
+		}
+
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+
+		if err := os.Chdir(path); err != nil {
+			return fmt.Errorf("chdir %s: %w", path, err)
+		}
+
+		return syscall.Exec(shell, []string{shell}, os.Environ())
+	},
+}
+
+// ── env ──────────────────────────────────────────────────────────────────────
+
+var worktreeEnvDryRun bool
+
+var worktreeEnvCmd = &cobra.Command{
+	Use:   "env <project> <branch>",
+	Short: "(Re)generate .env from template",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		project, branch := args[0], args[1]
+
+		if !worktreeEnvDryRun {
+			fmt.Fprintf(cmd.OutOrStdout(), "Processing .env.template...  ")
+		}
+
+		svc := newWorktreeService()
+		result, err := svc.Env(project, branch, worktreeEnvDryRun)
+		if err != nil {
+			if !worktreeEnvDryRun {
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+			return worktreeErr(cmd, project, branch, err)
+		}
+
+		if worktreeEnvDryRun {
+			fmt.Fprint(cmd.OutOrStdout(), result.Output)
+			return nil
+		}
+
+		fmt.Fprintln(cmd.OutOrStdout(), "done")
+		return nil
+	},
+}
+
+// ── error helper ─────────────────────────────────────────────────────────────
+
+func worktreeErr(cmd *cobra.Command, project, branch string, err error) error {
+	switch {
+	case errors.Is(err, worktree.ErrNotCloned):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s is not cloned. Run 'devenv project clone %s' first.\n", project, project)
+	case errors.Is(err, worktree.ErrWorktreeExists):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: worktree %s/%s already exists.\n", project, branch)
+	case errors.Is(err, worktree.ErrWorktreeNotFound):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: worktree %s/%s not found. Run 'devenv worktree new %s %s' first.\n", project, branch, project, branch)
+	case errors.Is(err, worktree.ErrSessionRunning):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: session %s-%s is running. Stop it first or use --force.\n", project, branch)
+	default:
+		return err
+	}
+	os.Exit(1)
+	return nil
+}
+
 func init() {
+	worktreeDeleteCmd.Flags().BoolVar(&worktreeForce, "force", false, "skip confirmation and kill any active session")
+	worktreeEnvCmd.Flags().BoolVar(&worktreeEnvDryRun, "dry-run", false, "print generated .env without writing")
+
+	worktreeCmd.AddCommand(worktreeListCmd)
+	worktreeCmd.AddCommand(worktreeNewCmd)
+	worktreeCmd.AddCommand(worktreeDeleteCmd)
+	worktreeCmd.AddCommand(worktreeShellCmd)
+	worktreeCmd.AddCommand(worktreeEnvCmd)
 	rootCmd.AddCommand(worktreeCmd)
 }

@@ -43,3 +43,23 @@ func TestExecute_Subcommands(t *testing.T) {
 		})
 	}
 }
+
+// TestExecute_ConfigLoadError exercises PersistentPreRunE when the config file
+// cannot be read (by pointing --config at a directory, causing ReadFile to fail).
+func TestExecute_ConfigLoadError(t *testing.T) {
+	dir := t.TempDir()
+	// A directory path will cause os.ReadFile to fail with a non-ErrNotExist error.
+	err := runCmd(t, "--config", dir, "up")
+	if err == nil {
+		t.Error("Execute() with unreadable config = nil, want error")
+	}
+}
+
+// TestExecute_UnknownCommand exercises the Execute() error branch by passing
+// a command name that Cobra does not recognise.
+func TestExecute_UnknownCommand(t *testing.T) {
+	err := runCmd(t, "totally-unknown-subcommand")
+	if err == nil {
+		t.Error("Execute() with unknown command = nil, want error")
+	}
+}

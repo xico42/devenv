@@ -1,0 +1,396 @@
+package worktree
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/devenv/internal/envtemplate"
+	"github.com/xico42/devenv/internal/tmux"
+)
+
+// Sentinel errors returned by Service methods.
+var (
+	ErrNotCloned        = errors.New("project not cloned")
+	ErrWorktreeExists   = errors.New("worktree already exists")
+	ErrWorktreeNotFound = errors.New("worktree not found")
+	ErrSessionRunning   = errors.New("session is running")
+)
+
+// WorktreeInfo holds data from a single git worktree entry.
+type WorktreeInfo struct {
+	Path   string
+	Branch string // empty if detached HEAD
+}
+
+// ListEntry is one row in the worktree list output.
+type ListEntry struct {
+	Project string
+	Branch  string
+	Path    string
+	Session string // "<name>-<branch> (running)" or ""
+}
+
+// NewResult is the result of a successful worktree creation.
+type NewResult struct {
+	Path       string
+	EnvWritten bool
+}
+
+// EnvResult is the result of env template processing.
+type EnvResult struct {
+	Output string
+	Source string
+	DryRun bool
+}
+
+// WorktreeRunner abstracts git worktree operations for testability.
+type WorktreeRunner interface {
+	Add(cloneDir, worktreePath, branch string) error
+	AddNewBranch(cloneDir, worktreePath, branch string) error
+	Remove(cloneDir, worktreePath string) error
+	List(cloneDir string) ([]WorktreeInfo, error)
+}
+
+// RealWorktreeRunner runs git worktree commands via os/exec.
+type RealWorktreeRunner struct{}
+
+// NewRealWorktreeRunner returns a WorktreeRunner backed by the system git binary.
+func NewRealWorktreeRunner() *RealWorktreeRunner { return &RealWorktreeRunner{} }
+
+func (r *RealWorktreeRunner) Add(cloneDir, worktreePath, branch string) error {
+	cmd := exec.Command("git", "worktree", "add", worktreePath, branch)
+	cmd.Dir = cloneDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git worktree add: %w\n%s", err, out)
+	}
+	return nil
+}
+
+func (r *RealWorktreeRunner) AddNewBranch(cloneDir, worktreePath, branch string) error {
+	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath)
+	cmd.Dir = cloneDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git worktree add -b: %w\n%s", err, out)
+	}
+	return nil
+}
+
+func (r *RealWorktreeRunner) Remove(cloneDir, worktreePath string) error {
+	cmd := exec.Command("git", "worktree", "remove", worktreePath)
+	cmd.Dir = cloneDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git worktree remove: %w\n%s", err, out)
+	}
+	return nil
+}
+
+func (r *RealWorktreeRunner) List(cloneDir string) ([]WorktreeInfo, error) {
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = cloneDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list: %w", err)
+	}
+	return parseWorktreePorcelain(string(out)), nil
+}
+
+// parseWorktreePorcelain parses the output of `git worktree list --porcelain`.
+// Blocks are separated by blank lines.
+func parseWorktreePorcelain(output string) []WorktreeInfo {
+	var result []WorktreeInfo
+	var current WorktreeInfo
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			current = WorktreeInfo{Path: strings.TrimPrefix(line, "worktree ")}
+		case strings.HasPrefix(line, "branch "):
+			ref := strings.TrimPrefix(line, "branch ")
+			current.Branch = strings.TrimPrefix(ref, "refs/heads/")
+		case line == "":
+			if current.Path != "" {
+				result = append(result, current)
+				current = WorktreeInfo{}
+			}
+		}
+	}
+	if current.Path != "" {
+		result = append(result, current)
+	}
+	return result
+}
+
+// Service provides worktree management operations.
+type Service struct {
+	cfg  *config.Config
+	git  WorktreeRunner
+	tmux *tmux.Client
+}
+
+// NewService creates a Service.
+func NewService(cfg *config.Config, git WorktreeRunner, tmux *tmux.Client) *Service {
+	return &Service{cfg: cfg, git: git, tmux: tmux}
+}
+
+// flattenBranch converts a branch name to a filesystem-safe directory name.
+// "feature/login" -> "feature-login"
+func flattenBranch(branch string) string {
+	return strings.ReplaceAll(branch, "/", "-")
+}
+
+// resolvePaths returns cloneDir, worktreesRoot, and worktreePath for a project+branch.
+func (s *Service) resolvePaths(project, branch string) (cloneDir, worktreesRoot, worktreePath string, err error) {
+	p, ok := s.cfg.Projects[project]
+	if !ok {
+		return "", "", "", fmt.Errorf("project %q is not configured", project)
+	}
+	repoPath, err := config.RepoPath(p.Repo)
+	if err != nil {
+		return "", "", "", fmt.Errorf("parsing repo URL: %w", err)
+	}
+	cloneDir = filepath.Join(s.cfg.Defaults.ProjectsDir, repoPath)
+	worktreesRoot = cloneDir + "__worktrees"
+	worktreePath = filepath.Join(worktreesRoot, flattenBranch(branch))
+	return cloneDir, worktreesRoot, worktreePath, nil
+}
+
+// resolveTemplate finds the .env template for a worktree.
+// Returns ("", "", nil) when no template is configured — callers decide whether to error.
+// Priority: repo-local .env.template > config EnvTemplate path.
+func resolveTemplate(worktreePath string, projCfg config.ProjectConfig) (content, source string, err error) {
+	repoLocal := filepath.Join(worktreePath, ".env.template")
+	if data, readErr := os.ReadFile(repoLocal); readErr == nil {
+		return string(data), "repo-local", nil
+	}
+	if projCfg.EnvTemplate != "" {
+		data, readErr := os.ReadFile(projCfg.EnvTemplate)
+		if readErr != nil {
+			return "", "", fmt.Errorf("reading env template %q: %w", projCfg.EnvTemplate, readErr)
+		}
+		return string(data), projCfg.EnvTemplate, nil
+	}
+	return "", "", nil
+}
+
+// New creates a new git worktree for the given project and branch.
+func (s *Service) New(project, branch string) (NewResult, error) {
+	p, ok := s.cfg.Projects[project]
+	if !ok {
+		return NewResult{}, fmt.Errorf("project %q is not configured", project)
+	}
+
+	cloneDir, worktreesRoot, worktreePath, err := s.resolvePaths(project, branch)
+	if err != nil {
+		return NewResult{}, err
+	}
+
+	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
+		return NewResult{}, fmt.Errorf("%w: %s", ErrNotCloned, project)
+	}
+
+	if _, err := os.Stat(worktreePath); err == nil {
+		return NewResult{}, fmt.Errorf("%w: %s/%s", ErrWorktreeExists, project, branch)
+	}
+
+	if err := os.MkdirAll(worktreesRoot, 0o755); err != nil {
+		return NewResult{}, fmt.Errorf("creating worktrees dir: %w", err)
+	}
+
+	addErr := s.git.Add(cloneDir, worktreePath, branch)
+	if addErr != nil {
+		if err := s.git.AddNewBranch(cloneDir, worktreePath, branch); err != nil {
+			return NewResult{}, fmt.Errorf("failed to create worktree (add: %v; add -b: %w)", addErr, err)
+		}
+	}
+
+	result := NewResult{Path: worktreePath}
+
+	content, source, _ := resolveTemplate(worktreePath, p)
+	if content != "" {
+		ctx := envtemplate.EnvTemplateContext{
+			Project:      project,
+			Branch:       branch,
+			WorktreePath: worktreePath,
+			SessionName:  project + "-" + branch,
+		}
+		if rendered, renderErr := envtemplate.Process(content, source, ctx); renderErr == nil {
+			envPath := filepath.Join(worktreePath, ".env")
+			if writeErr := os.WriteFile(envPath, []byte(rendered), 0o644); writeErr == nil {
+				result.EnvWritten = true
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// List returns worktree entries for all configured projects, or just the named one.
+// Skips projects that are not cloned. Never returns an error for individual project
+// failures — those are silently skipped.
+func (s *Service) List(project string) ([]ListEntry, error) {
+	names, err := s.projectNames(project)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []ListEntry
+	for _, name := range names {
+		p := s.cfg.Projects[name]
+		repoPath, err := config.RepoPath(p.Repo)
+		if err != nil {
+			continue
+		}
+		cd := filepath.Join(s.cfg.Defaults.ProjectsDir, repoPath)
+		if _, err := os.Stat(cd); os.IsNotExist(err) {
+			continue
+		}
+
+		worktrees, err := s.git.List(cd)
+		if err != nil {
+			continue
+		}
+
+		for _, wt := range worktrees {
+			session := ""
+			if wt.Branch != "" {
+				candidate := name + "-" + wt.Branch
+				if running, _ := s.tmux.HasSession(candidate); running {
+					session = candidate + " (running)"
+				}
+			}
+			entries = append(entries, ListEntry{
+				Project: name,
+				Branch:  wt.Branch,
+				Path:    wt.Path,
+				Session: session,
+			})
+		}
+	}
+	return entries, nil
+}
+
+// DeleteRequest holds parameters for a worktree deletion.
+type DeleteRequest struct {
+	Project string
+	Branch  string
+	Force   bool
+}
+
+// Delete removes a git worktree. Returns ErrWorktreeNotFound if the worktree
+// directory does not exist, ErrSessionRunning if a tmux session is active and
+// Force is false.
+func (s *Service) Delete(req DeleteRequest) error {
+	cloneDir, _, worktreePath, err := s.resolvePaths(req.Project, req.Branch)
+	if err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+		return fmt.Errorf("%w: %s/%s", ErrWorktreeNotFound, req.Project, req.Branch)
+	}
+
+	sessionName := req.Project + "-" + req.Branch
+	running, err := s.tmux.HasSession(sessionName)
+	if err != nil {
+		return fmt.Errorf("checking tmux session: %w", err)
+	}
+	if running && !req.Force {
+		return fmt.Errorf("%w: %s", ErrSessionRunning, sessionName)
+	}
+	if running && req.Force {
+		if err := s.tmux.KillSession(sessionName); err != nil {
+			return fmt.Errorf("killing session: %w", err)
+		}
+	}
+
+	return s.git.Remove(cloneDir, worktreePath)
+}
+
+// WorktreePath resolves the filesystem path for the given project+branch worktree,
+// checking that both the clone and the worktree exist.
+func (s *Service) WorktreePath(project, branch string) (string, error) {
+	cloneDir, _, worktreePath, err := s.resolvePaths(project, branch)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("%w: %s", ErrNotCloned, project)
+	}
+	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("%w: %s/%s", ErrWorktreeNotFound, project, branch)
+	}
+	return worktreePath, nil
+}
+
+// Env processes the .env template for the given worktree and writes .env.
+// If dryRun is true, the rendered content is returned without writing.
+func (s *Service) Env(project, branch string, dryRun bool) (EnvResult, error) {
+	p, ok := s.cfg.Projects[project]
+	if !ok {
+		return EnvResult{}, fmt.Errorf("project %q is not configured", project)
+	}
+
+	_, _, worktreePath, err := s.resolvePaths(project, branch)
+	if err != nil {
+		return EnvResult{}, err
+	}
+	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+		return EnvResult{}, fmt.Errorf("%w: %s/%s", ErrWorktreeNotFound, project, branch)
+	}
+
+	content, source, err := resolveTemplate(worktreePath, p)
+	if err != nil {
+		return EnvResult{}, fmt.Errorf("template error: %w", err)
+	}
+	if content == "" {
+		return EnvResult{}, fmt.Errorf("no .env.template found for %s (checked repo and config)", project)
+	}
+
+	ctx := envtemplate.EnvTemplateContext{
+		Project:      project,
+		Branch:       branch,
+		WorktreePath: worktreePath,
+		SessionName:  project + "-" + branch,
+	}
+	rendered, err := envtemplate.Process(content, source, ctx)
+	if err != nil {
+		return EnvResult{}, fmt.Errorf("template error: %w", err)
+	}
+
+	if !dryRun {
+		envPath := filepath.Join(worktreePath, ".env")
+		if err := os.WriteFile(envPath, []byte(rendered), 0o644); err != nil {
+			return EnvResult{}, fmt.Errorf("writing .env: %w", err)
+		}
+	}
+
+	return EnvResult{Output: rendered, Source: source, DryRun: dryRun}, nil
+}
+
+// projectNames returns sorted project names. If project is non-empty, validates and
+// returns just that one.
+func (s *Service) projectNames(project string) ([]string, error) {
+	if project != "" {
+		if _, ok := s.cfg.Projects[project]; !ok {
+			return nil, fmt.Errorf("project %q is not configured", project)
+		}
+		return []string{project}, nil
+	}
+	names := make([]string, 0, len(s.cfg.Projects))
+	for name := range s.cfg.Projects {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}

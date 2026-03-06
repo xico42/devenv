@@ -245,6 +245,39 @@ func TestListSessions_SkipsSubdirs(t *testing.T) {
 	}
 }
 
+// TestSaveSession_WriteError exercises the WriteFile error branch by using a
+// directory path where the session file is expected.
+func TestSaveSession_WriteError(t *testing.T) {
+	dir := t.TempDir()
+	// Pre-create a directory named "mysession.json" so WriteFile fails.
+	sessionPath := filepath.Join(dir, "mysession.json")
+	if err := os.Mkdir(sessionPath, 0o700); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	s := &state.SessionState{Session: "mysession", Status: state.SessionRunning}
+	err := state.SaveSession(dir, s)
+	if err == nil {
+		t.Fatal("SaveSession() on directory path = nil, want error")
+	}
+}
+
+// TestListSessions_ReadDirError exercises the non-ErrNotExist ReadDir error by
+// pointing ListSessions at a file instead of a directory.
+func TestListSessions_ReadDirError(t *testing.T) {
+	// Create a file where a directory is expected.
+	f, err := os.CreateTemp("", "notadir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	defer os.Remove(f.Name())
+
+	_, err = state.ListSessions(f.Name())
+	if err == nil {
+		t.Fatal("ListSessions() on file path = nil, want error")
+	}
+}
+
 // TestClearSession_RemoveError exercises the non-ErrNotExist remove error
 // by placing a directory where the session file is expected.
 func TestClearSession_RemoveError(t *testing.T) {
