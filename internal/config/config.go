@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -16,6 +17,8 @@ const defaultImage = "ubuntu-24-04-x64"
 type Config struct {
 	Defaults DefaultsConfig           `toml:"defaults"`
 	Profiles map[string]ProfileConfig `toml:"profiles"`
+	Projects map[string]ProjectConfig `toml:"projects"`
+	Notify   NotifyConfig             `toml:"notify"`
 
 	path string // runtime only, not serialized
 }
@@ -28,6 +31,8 @@ type DefaultsConfig struct {
 	Size             string `toml:"size"`
 	TailscaleAuthKey string `toml:"tailscale_auth_key"`
 	Image            string `toml:"image"`
+	ProjectsDir      string `toml:"projects_dir"`
+	GitIdentityFile  string `toml:"git_identity_file"`
 }
 
 // ProfileConfig holds per-profile overrides.
@@ -35,6 +40,41 @@ type ProfileConfig struct {
 	Size   string `toml:"size"`
 	Region string `toml:"region"`
 	Image  string `toml:"image"`
+}
+
+const defaultProjectsDir = "~/projects"
+
+// expandTilde replaces a leading "~/" with the user's home directory.
+func expandTilde(path string) (string, error) {
+	if !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("expanding ~: %w", err)
+	}
+	return home + path[1:], nil
+}
+
+// expandPaths resolves ~ in all path fields and applies defaults.
+func (c *Config) expandPaths() error {
+	if c.Defaults.ProjectsDir == "" {
+		c.Defaults.ProjectsDir = defaultProjectsDir
+	}
+	var err error
+	if c.Defaults.ProjectsDir, err = expandTilde(c.Defaults.ProjectsDir); err != nil {
+		return err
+	}
+	if c.Defaults.GitIdentityFile, err = expandTilde(c.Defaults.GitIdentityFile); err != nil {
+		return err
+	}
+	for name, p := range c.Projects {
+		if p.EnvTemplate, err = expandTilde(p.EnvTemplate); err != nil {
+			return err
+		}
+		c.Projects[name] = p
+	}
+	return nil
 }
 
 // Load reads config from path. If path is empty, uses ~/.config/devenv/config.toml.
@@ -53,6 +93,9 @@ func Load(path string) (*Config, error) {
 
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
+		if err := cfg.expandPaths(); err != nil {
+			return nil, err
+		}
 		return cfg, nil
 	}
 	if err != nil {
@@ -63,6 +106,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Defaults.Image == "" {
 		cfg.Defaults.Image = defaultImage
+	}
+	if err := cfg.expandPaths(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
