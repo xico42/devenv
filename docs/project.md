@@ -487,3 +487,13 @@ When starting a new agent session to continue development on this project, provi
 13. **Layout A** — each Claude session in its own tmux session, management in `devenv` session
 14. **projects_dir is configurable** — default `~/projects`
 15. **Clone paths mirror repo URL** — `~/projects/github.com/user/myapp/` (like `ghq` / Go modules), set via config
+
+---
+
+## TODO / Deferred Ideas
+
+Ideas and features that came up during development but were intentionally deferred. Each item should eventually become a PRD or be added to the roadmap.
+
+| Idea | Context | Notes |
+|---|---|---|
+| `devenv config project add <name>` wizard | Came up during `config` command design | Interactive prompts for repo URL + default branch; alternative to `config set projects.<name>.repo ...` + `config set projects.<name>.default_branch ...`; no API calls needed |

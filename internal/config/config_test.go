@@ -3,10 +3,27 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xico42/devenv/internal/config"
 )
+
+// TestLoad_EmptyPath verifies that Load("") uses the XDG default path
+// and returns non-nil defaults (file may or may not exist).
+func TestLoad_EmptyPath(t *testing.T) {
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") error = %v, want nil", err)
+	}
+	if cfg == nil {
+		t.Fatal("Load(\"\") = nil, want non-nil")
+	}
+	// Default image is always set.
+	if cfg.Defaults.Image == "" {
+		t.Error("Load(\"\") Defaults.Image is empty, want default")
+	}
+}
 
 func TestLoad_MissingFile(t *testing.T) {
 	dir := t.TempDir()
@@ -300,6 +317,166 @@ env_template = "/absolute/path/api.env.template"
 	// Absolute paths must not be altered by expandTilde.
 	if api.EnvTemplate != "/absolute/path/api.env.template" {
 		t.Errorf("EnvTemplate = %q, want unchanged absolute path", api.EnvTemplate)
+	}
+}
+
+func TestConfig_Validate_EmptyConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := config.Load(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	// Empty config is valid — nothing is required at file level.
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() on empty config = %v, want nil", err)
+	}
+}
+
+func TestRedact(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"do_pat_v1_abcdefghijklmnopqrstuvwxyz1234", "do_pat_v1****1234"},
+		{"short", "****"},
+		{"exactly12ch!", "****"},
+		{"", "****"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := config.Redact(tt.input)
+			if got != tt.want {
+				t.Errorf("Redact(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_Path(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	cfg, _ := config.Load(path)
+	if cfg.Path() != path {
+		t.Errorf("Path() = %q, want %q", cfg.Path(), path)
+	}
+}
+
+func TestIsValidKeyPath(t *testing.T) {
+	tests := []struct {
+		path  string
+		valid bool
+	}{
+		{"defaults.token", true},
+		{"defaults.region", true},
+		{"defaults.ssh_key_id", true},
+		{"defaults.foo", false},
+		{"profiles.heavy.size", true},
+		{"profiles.heavy.region", true},
+		{"profiles.heavy.unknown", false},
+		{"projects.myapp.repo", true},
+		{"projects.myapp.default_branch", true},
+		{"projects.myapp.env_template", true},
+		{"projects.myapp.nope", false},
+		{"notify.provider", true},
+		{"notify.telegram.bot_token", true},
+		{"unknown.key", false},
+		{"defaults", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := config.IsValidKeyPath(tt.path)
+			if got != tt.valid {
+				t.Errorf("IsValidKeyPath(%q) = %v, want %v", tt.path, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestConfig_SetKey_Valid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	// Write initial config with a comment that must survive the edit.
+	content := "# my important comment\n[defaults]\nregion = \"nyc3\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(path)
+
+	if err := cfg.SetKey("defaults.region", "sfo3"); err != nil {
+		t.Fatalf("SetKey() error = %v", err)
+	}
+
+	// Value updated
+	cfg2, _ := config.Load(path)
+	if cfg2.Defaults.Region != "sfo3" {
+		t.Errorf("Region = %q, want %q", cfg2.Defaults.Region, "sfo3")
+	}
+
+	// Comment preserved
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), "# my important comment") {
+		t.Error("SetKey() clobbered the comment in the file")
+	}
+}
+
+func TestConfig_SetKey_UnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	cfg, _ := config.Load(filepath.Join(dir, "config.toml"))
+	err := cfg.SetKey("defaults.nonexistent", "val")
+	if err == nil {
+		t.Fatal("SetKey() with unknown key = nil, want error")
+	}
+}
+
+func TestConfig_SetKey_CreatesNewProfile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	cfg, _ := config.Load(path)
+
+	if err := cfg.SetKey("profiles.heavy.size", "s-8vcpu-16gb"); err != nil {
+		t.Fatalf("SetKey() error = %v", err)
+	}
+
+	cfg2, _ := config.Load(path)
+	p, err := cfg2.Profile("heavy")
+	if err != nil {
+		t.Fatalf("Profile() error = %v", err)
+	}
+	if p.Size != "s-8vcpu-16gb" {
+		t.Errorf("Size = %q, want %q", p.Size, "s-8vcpu-16gb")
+	}
+}
+
+func TestConfig_DeleteSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[defaults]\nregion = \"nyc3\"\n\n[profiles.heavy]\nsize = \"s-8vcpu-16gb\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, _ := config.Load(path)
+
+	if err := cfg.DeleteSection("profiles.heavy"); err != nil {
+		t.Fatalf("DeleteSection() error = %v", err)
+	}
+
+	cfg2, _ := config.Load(path)
+	if _, err := cfg2.Profile("heavy"); err == nil {
+		t.Error("Profile heavy still exists after DeleteSection")
+	}
+	// defaults must be untouched
+	if cfg2.Defaults.Region != "nyc3" {
+		t.Errorf("Region = %q after delete, want nyc3", cfg2.Defaults.Region)
+	}
+}
+
+func TestConfig_DeleteSection_NonExistent(t *testing.T) {
+	dir := t.TempDir()
+	cfg, _ := config.Load(filepath.Join(dir, "config.toml"))
+	// Must not error on missing section.
+	if err := cfg.DeleteSection("profiles.ghost"); err != nil {
+		t.Errorf("DeleteSection non-existent = %v, want nil", err)
 	}
 }
 

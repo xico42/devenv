@@ -15,9 +15,21 @@ type DropletsService interface {
 	Delete(ctx context.Context, dropletID int) (*godo.Response, error)
 }
 
+// SSHKeysService is the subset of godo.KeysService used by devenv.
+type SSHKeysService interface {
+	List(ctx context.Context, opts *godo.ListOptions) ([]godo.Key, *godo.Response, error)
+}
+
+// RegionsService is the subset of godo.RegionsService used by devenv.
+type RegionsService interface {
+	List(ctx context.Context, opts *godo.ListOptions) ([]godo.Region, *godo.Response, error)
+}
+
 // Client wraps the DO API with only the methods devenv needs.
 type Client struct {
 	Droplets DropletsService
+	Keys     SSHKeysService
+	Regions  RegionsService
 }
 
 // New returns an authenticated Client for the given token.
@@ -28,5 +40,9 @@ func New(token string) (*Client, error) {
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	tc := oauth2.NewClient(context.Background(), ts)
 	g := godo.NewClient(tc)
-	return &Client{Droplets: g.Droplets}, nil
+	return &Client{
+		Droplets: g.Droplets,
+		Keys:     g.Keys,
+		Regions:  g.Regions,
+	}, nil
 }

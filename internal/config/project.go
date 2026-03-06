@@ -8,9 +8,9 @@ import (
 
 // ProjectConfig holds per-project settings.
 type ProjectConfig struct {
-	Repo          string `toml:"repo"`
-	DefaultBranch string `toml:"default_branch"`
-	EnvTemplate   string `toml:"env_template"`
+	Repo          string `toml:"repo"           validate:"omitempty"`
+	DefaultBranch string `toml:"default_branch" validate:"omitempty"`
+	EnvTemplate   string `toml:"env_template"   validate:"omitempty"`
 }
 
 // RepoPath parses a git remote URL and returns the directory path.

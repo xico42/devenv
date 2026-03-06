@@ -268,10 +268,56 @@ func TestCloneAll_Empty(t *testing.T) {
 	}
 }
 
-func TestAlreadyClonedError_Error(t *testing.T) {
-	err := &project.AlreadyClonedError{Path: "/home/user/projects/myapp"}
-	want := "/home/user/projects/myapp already exists, skipping"
+// ── AlreadyClonedError ────────────────────────────────────────────────────────
+
+func TestAlreadyClonedError_ErrorString(t *testing.T) {
+	err := &project.AlreadyClonedError{Path: "/some/path"}
+	want := "/some/path already exists, skipping"
 	if err.Error() != want {
 		t.Errorf("Error() = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestAlreadyClonedError_Unwrap(t *testing.T) {
+	err := &project.AlreadyClonedError{Path: "/some/path"}
+	if err.Unwrap() != project.ErrAlreadyCloned {
+		t.Errorf("Unwrap() = %v, want ErrAlreadyCloned", err.Unwrap())
+	}
+}
+
+// ── NewRealGitRunner ──────────────────────────────────────────────────────────
+
+func TestNewRealGitRunner_NotNil(t *testing.T) {
+	r := project.NewRealGitRunner()
+	if r == nil {
+		t.Error("NewRealGitRunner() = nil, want non-nil")
+	}
+}
+
+// ── Show with bad repo URL ────────────────────────────────────────────────────
+
+func TestShow_BadRepoURL(t *testing.T) {
+	// An https URL with no host triggers RepoPath's "no host" error.
+	cfg := makeConfig("/home/user/projects", map[string]config.ProjectConfig{
+		"badrepo": {Repo: "https:///no-host/repo.git"},
+	})
+	svc := project.NewService(cfg, &mockGitRunner{})
+	_, err := svc.Show("badrepo")
+	if err == nil {
+		t.Fatal("Show() with bad repo URL = nil, want error")
+	}
+}
+
+// ── Clone with bad repo URL ───────────────────────────────────────────────────
+
+func TestClone_BadRepoURL(t *testing.T) {
+	// An https URL with no host triggers RepoPath's "no host" error.
+	cfg := makeConfig("/home/user/projects", map[string]config.ProjectConfig{
+		"badrepo": {Repo: "https:///no-host/repo.git"},
+	})
+	svc := project.NewService(cfg, &mockGitRunner{})
+	err := svc.Clone("badrepo")
+	if err == nil {
+		t.Fatal("Clone() with bad repo URL = nil, want error")
 	}
 }
