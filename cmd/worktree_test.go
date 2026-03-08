@@ -110,7 +110,9 @@ func TestWorktreeEnv_tooManyArgs(t *testing.T) {
 func TestWorktreeList_withClonedProject(t *testing.T) {
 	projectsDir := t.TempDir()
 	cloneDir := filepath.Join(projectsDir, "github.com", "user", "myapp")
-	os.MkdirAll(cloneDir, 0o755)
+	if err := os.MkdirAll(cloneDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cfgPath := writeConfig(t, projectsDir)
 	// May return error (not a git repo); that's fine — no panic is the goal.
 	runCmd(t, "--config", cfgPath, "worktree", "list") //nolint:errcheck
@@ -128,7 +130,9 @@ func TestWorktreeDelete_abortedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.WriteString("n\n")
+	if _, err := w.WriteString("n\n"); err != nil {
+		t.Fatal(err)
+	}
 	w.Close()
 
 	origStdin := os.Stdin

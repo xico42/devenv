@@ -141,10 +141,14 @@ func TestService_New_notCloned(t *testing.T) {
 func TestService_New_worktreeExists(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
 	clone := cloneDirPath(tmpDir)
-	os.MkdirAll(clone, 0o755)
+	if err := os.MkdirAll(clone, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// Pre-create the worktree path
 	worktreePath := clone + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := svc.New("myapp", "feature")
 	if !errors.Is(err, ErrWorktreeExists) {
@@ -155,7 +159,9 @@ func TestService_New_worktreeExists(t *testing.T) {
 func TestService_New_success(t *testing.T) {
 	git := &mockGit{}
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{})
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.New("myapp", "feature")
 	if err != nil {
@@ -173,7 +179,9 @@ func TestService_New_success(t *testing.T) {
 func TestService_New_branchNotFound_fallsBackToAddNew(t *testing.T) {
 	git := &mockGit{addErr: fmt.Errorf("invalid reference")}
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{})
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := svc.New("myapp", "new-feature")
 	if err != nil {
@@ -190,7 +198,9 @@ func TestService_New_bothAddsFail(t *testing.T) {
 		addNewErr: fmt.Errorf("already exists"),
 	}
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{})
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := svc.New("myapp", "new-feature")
 	if err == nil {
@@ -201,7 +211,9 @@ func TestService_New_bothAddsFail(t *testing.T) {
 func TestService_New_branchFlattened(t *testing.T) {
 	git := &mockGit{}
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{})
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.New("myapp", "feature/login")
 	if err != nil {
@@ -221,7 +233,9 @@ func TestService_List_allProjects(t *testing.T) {
 	}
 	// tmux exit 1 = no session
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{exitCode: 1})
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	entries, err := svc.List("")
 	if err != nil {
@@ -243,7 +257,9 @@ func TestService_List_withRunningSession(t *testing.T) {
 	}
 	// tmux exit 0 = session exists
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{exitCode: 0})
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	entries, err := svc.List("")
 	if err != nil {
@@ -292,7 +308,9 @@ func TestService_Delete_sessionRunning_noForce(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{exitCode: 0}) // session exists
 	// Create worktree dir so stat check passes
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	err := svc.Delete(DeleteRequest{Project: "myapp", Branch: "feature", Force: false})
 	if !errors.Is(err, ErrSessionRunning) {
@@ -304,7 +322,9 @@ func TestService_Delete_sessionRunning_force(t *testing.T) {
 	git := &mockGit{}
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{exitCode: 0}) // session exists
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	err := svc.Delete(DeleteRequest{Project: "myapp", Branch: "feature", Force: true})
 	if err != nil {
@@ -317,7 +337,9 @@ func TestService_Delete_success(t *testing.T) {
 	git := &mockGit{}
 	svc, tmpDir := makeService(t, git, &mockTmuxRunner{exitCode: 1}) // no session
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	err := svc.Delete(DeleteRequest{Project: "myapp", Branch: "feature"})
 	if err != nil {
@@ -352,15 +374,20 @@ func (m *mockGitCreatesDir) List(cloneDir string) ([]WorktreeInfo, error) {
 
 func TestService_New_withEnvTemplate(t *testing.T) {
 	git := &mockGitCreatesDir{}
-	svc, tmpDir := makeService(t, git, &mockTmuxRunner{})
+	var svc *Service
+	_, tmpDir := makeService(t, git, &mockTmuxRunner{})
 	cloneDir := cloneDirPath(tmpDir)
-	os.MkdirAll(cloneDir, 0o755)
+	if err := os.MkdirAll(cloneDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	// We need to write the template to where git.Add will place the worktree
 	// The mock creates the dir on Add, so we write the template after Add would create it.
 	// We set up a config-level env_template instead (simpler to pre-create):
 	templatePath := filepath.Join(tmpDir, "env.template")
-	os.WriteFile(templatePath, []byte("X=1\n"), 0o644)
+	if err := os.WriteFile(templatePath, []byte("X=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Override cfg to use config-level template
 	cfg := &config.Config{
@@ -409,7 +436,9 @@ func TestService_Env_badRepoURL(t *testing.T) {
 func TestService_Env_worktreeNotFound(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
 	// Create clone dir but NOT the worktree dir
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := svc.Env("myapp", "feature", false)
 	if !errors.Is(err, ErrWorktreeNotFound) {
@@ -421,11 +450,15 @@ func TestService_Env_templateReadError(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Create a worktree path
 	worktreePath := filepath.Join(tmpDir, "github.com", "user", "myapp__worktrees", "feature")
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	// Point config template at a directory (unreadable as file)
 	badTemplatePath := filepath.Join(tmpDir, "badtemplate")
-	os.MkdirAll(badTemplatePath, 0o755)
+	if err := os.MkdirAll(badTemplatePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := &config.Config{
 		Defaults: config.DefaultsConfig{ProjectsDir: tmpDir},
@@ -448,13 +481,19 @@ func TestService_Env_templateReadError(t *testing.T) {
 func TestService_Env_invalidTemplate(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// Write a template with invalid syntax
-	os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("PORT={{ .Invalid }}\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("PORT={{ .Invalid }}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// envtemplate.Process won't error on .Invalid (it's a valid template action);
 	// use a syntax error instead
-	os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("{{ invalid template syntax {{{\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("{{ invalid template syntax {{{\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := svc.Env("myapp", "feature", false)
 	if err == nil {
@@ -472,7 +511,9 @@ func TestService_WorktreePath_notCloned(t *testing.T) {
 
 func TestService_WorktreePath_worktreeNotFound(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// worktree dir does not exist
 
 	_, err := svc.WorktreePath("myapp", "feature")
@@ -484,8 +525,12 @@ func TestService_WorktreePath_worktreeNotFound(t *testing.T) {
 func TestService_WorktreePath_ok(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(cloneDirPath(tmpDir), 0o755)
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	path, err := svc.WorktreePath("myapp", "feature")
 	if err != nil {
@@ -499,7 +544,9 @@ func TestService_WorktreePath_ok(t *testing.T) {
 func TestService_Env_noTemplate(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := svc.Env("myapp", "feature", false)
 	if err == nil {
@@ -510,9 +557,13 @@ func TestService_Env_noTemplate(t *testing.T) {
 func TestService_Env_repoLocalTemplate(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// Write a repo-local .env.template
-	os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("PORT={{ port \"web\" }}\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("PORT={{ port \"web\" }}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.Env("myapp", "feature", false)
 	if err != nil {
@@ -530,8 +581,12 @@ func TestService_Env_repoLocalTemplate(t *testing.T) {
 func TestService_Env_dryRun(t *testing.T) {
 	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
 	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
-	os.MkdirAll(worktreePath, 0o755)
-	os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("X=1\n"), 0o644)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreePath, ".env.template"), []byte("X=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.Env("myapp", "feature", true)
 	if err != nil {
@@ -550,7 +605,9 @@ func TestService_Env_configTemplate(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Write template to a separate file
 	templatePath := filepath.Join(tmpDir, "my.env.template")
-	os.WriteFile(templatePath, []byte("DB_PORT={{ port \"db\" }}\n"), 0o644)
+	if err := os.WriteFile(templatePath, []byte("DB_PORT={{ port \"db\" }}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := &config.Config{
 		Defaults: config.DefaultsConfig{ProjectsDir: tmpDir},
@@ -565,7 +622,9 @@ func TestService_Env_configTemplate(t *testing.T) {
 	svc := NewService(cfg, &mockGit{}, tc)
 
 	worktreePath := filepath.Join(tmpDir, "github.com", "user", "myapp__worktrees", "feature")
-	os.MkdirAll(worktreePath, 0o755)
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.Env("myapp", "feature", true)
 	if err != nil {

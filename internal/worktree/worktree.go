@@ -221,7 +221,7 @@ func (s *Service) New(project, branch string) (NewResult, error) {
 		}
 		if rendered, renderErr := envtemplate.Process(content, source, ctx); renderErr == nil {
 			envPath := filepath.Join(worktreePath, ".env")
-			if writeErr := os.WriteFile(envPath, []byte(rendered), 0o644); writeErr == nil {
+			if writeErr := os.WriteFile(envPath, []byte(rendered), 0o600); writeErr == nil {
 				result.EnvWritten = true
 			}
 		}
@@ -309,7 +309,10 @@ func (s *Service) Delete(req DeleteRequest) error {
 		}
 	}
 
-	return s.git.Remove(cloneDir, worktreePath)
+	if err := s.git.Remove(cloneDir, worktreePath); err != nil {
+		return fmt.Errorf("removing worktree: %w", err)
+	}
+	return nil
 }
 
 // WorktreePath resolves the filesystem path for the given project+branch worktree,
@@ -365,7 +368,7 @@ func (s *Service) Env(project, branch string, dryRun bool) (EnvResult, error) {
 
 	if !dryRun {
 		envPath := filepath.Join(worktreePath, ".env")
-		if err := os.WriteFile(envPath, []byte(rendered), 0o644); err != nil {
+		if err := os.WriteFile(envPath, []byte(rendered), 0o600); err != nil {
 			return EnvResult{}, fmt.Errorf("writing .env: %w", err)
 		}
 	}
