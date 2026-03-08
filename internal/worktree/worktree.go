@@ -12,6 +12,7 @@ import (
 
 	"github.com/xico42/devenv/internal/config"
 	"github.com/xico42/devenv/internal/envtemplate"
+	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/tmux"
 )
 
@@ -143,12 +144,6 @@ func NewService(cfg *config.Config, git WorktreeRunner, tmux *tmux.Client) *Serv
 	return &Service{cfg: cfg, git: git, tmux: tmux}
 }
 
-// flattenBranch converts a branch name to a filesystem-safe directory name.
-// "feature/login" -> "feature-login"
-func flattenBranch(branch string) string {
-	return strings.ReplaceAll(branch, "/", "-")
-}
-
 // resolvePaths returns cloneDir, worktreesRoot, and worktreePath for a project+branch.
 func (s *Service) resolvePaths(project, branch string) (cloneDir, worktreesRoot, worktreePath string, err error) {
 	p, ok := s.cfg.Projects[project]
@@ -159,9 +154,9 @@ func (s *Service) resolvePaths(project, branch string) (cloneDir, worktreesRoot,
 	if err != nil {
 		return "", "", "", fmt.Errorf("parsing repo URL: %w", err)
 	}
-	cloneDir = filepath.Join(s.cfg.Defaults.ProjectsDir, repoPath)
-	worktreesRoot = cloneDir + "__worktrees"
-	worktreePath = filepath.Join(worktreesRoot, flattenBranch(branch))
+	cloneDir = semconv.CloneDir(s.cfg.Defaults.ProjectsDir, repoPath)
+	worktreesRoot = semconv.WorktreesRoot(s.cfg.Defaults.ProjectsDir, repoPath)
+	worktreePath = semconv.WorktreePath(s.cfg.Defaults.ProjectsDir, repoPath, branch)
 	return cloneDir, worktreesRoot, worktreePath, nil
 }
 
@@ -222,7 +217,7 @@ func (s *Service) New(project, branch string) (NewResult, error) {
 			Project:      project,
 			Branch:       branch,
 			WorktreePath: worktreePath,
-			SessionName:  project + "-" + branch,
+			SessionName:  semconv.SessionName(project, branch),
 		}
 		if rendered, renderErr := envtemplate.Process(content, source, ctx); renderErr == nil {
 			envPath := filepath.Join(worktreePath, ".env")
@@ -264,7 +259,7 @@ func (s *Service) List(project string) ([]ListEntry, error) {
 		for _, wt := range worktrees {
 			session := ""
 			if wt.Branch != "" {
-				candidate := name + "-" + wt.Branch
+				candidate := semconv.SessionName(name, wt.Branch)
 				if running, _ := s.tmux.HasSession(candidate); running {
 					session = candidate + " (running)"
 				}
@@ -300,7 +295,7 @@ func (s *Service) Delete(req DeleteRequest) error {
 		return fmt.Errorf("%w: %s/%s", ErrWorktreeNotFound, req.Project, req.Branch)
 	}
 
-	sessionName := req.Project + "-" + req.Branch
+	sessionName := semconv.SessionName(req.Project, req.Branch)
 	running, err := s.tmux.HasSession(sessionName)
 	if err != nil {
 		return fmt.Errorf("checking tmux session: %w", err)
@@ -361,7 +356,7 @@ func (s *Service) Env(project, branch string, dryRun bool) (EnvResult, error) {
 		Project:      project,
 		Branch:       branch,
 		WorktreePath: worktreePath,
-		SessionName:  project + "-" + branch,
+		SessionName:  semconv.SessionName(project, branch),
 	}
 	rendered, err := envtemplate.Process(content, source, ctx)
 	if err != nil {

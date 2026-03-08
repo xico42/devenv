@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -40,6 +41,30 @@ func (c *Client) KillSession(name string) error {
 // NewSession creates a detached tmux session with the given name and start directory.
 func (c *Client) NewSession(name, dir string) error {
 	_, stderr, code, err := c.runner.Run("new-session", "-d", "-s", name, "-c", dir)
+	if err != nil {
+		return fmt.Errorf("tmux new-session: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("tmux new-session: %s", strings.TrimSpace(stderr))
+	}
+	return nil
+}
+
+// NewSessionWithEnv creates a detached tmux session with environment variables
+// and an initial command.
+func (c *Client) NewSessionWithEnv(name, dir string, env map[string]string, cmd string) error {
+	args := []string{"new-session", "-d", "-s", name, "-c", dir}
+	// Sort keys for deterministic arg order (testability).
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, "-e", k+"="+env[k])
+	}
+	args = append(args, cmd)
+	_, stderr, code, err := c.runner.Run(args...)
 	if err != nil {
 		return fmt.Errorf("tmux new-session: %w", err)
 	}

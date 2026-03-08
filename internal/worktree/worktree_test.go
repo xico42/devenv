@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/tmux"
 )
 
@@ -31,9 +32,9 @@ func TestFlattenBranch(t *testing.T) {
 		{"main", "main"},
 	}
 	for _, tc := range cases {
-		got := flattenBranch(tc.in)
+		got := semconv.FlattenBranch(tc.in)
 		if got != tc.want {
-			t.Errorf("flattenBranch(%q) = %q, want %q", tc.in, got, tc.want)
+			t.Errorf("semconv.FlattenBranch(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

@@ -178,3 +178,75 @@ func TestNewRealRunner(t *testing.T) {
 		t.Fatal("NewRealRunner() returned nil")
 	}
 }
+
+func TestClient_NewSessionWithEnv_ok(t *testing.T) {
+	r := &mockRunner{exitCode: 0}
+	c := tmux.NewClient(r)
+	env := map[string]string{"DEVENV_SESSION": "myapp-feature", "FOO": "bar"}
+	err := c.NewSessionWithEnv("myapp-feature", "/tmp/wt", env, "claude --skip")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.lastArgs[0] != "new-session" {
+		t.Errorf("expected new-session, got %v", r.lastArgs)
+	}
+	// Verify -d, -s, -c flags are present
+	argStr := fmt.Sprintf("%v", r.lastArgs)
+	for _, want := range []string{"-d", "-s", "myapp-feature", "-c", "/tmp/wt"} {
+		found := false
+		for _, a := range r.lastArgs {
+			if a == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %q in args %s", want, argStr)
+		}
+	}
+}
+
+func TestClient_NewSessionWithEnv_error(t *testing.T) {
+	r := &mockRunner{exitCode: 1, stderr: "duplicate session"}
+	c := tmux.NewClient(r)
+	err := c.NewSessionWithEnv("myapp", "/tmp", nil, "claude")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestClient_NewSessionWithEnv_execError(t *testing.T) {
+	r := &mockRunner{exitCode: -1, err: fmt.Errorf("tmux not found")}
+	c := tmux.NewClient(r)
+	err := c.NewSessionWithEnv("myapp", "/tmp", nil, "claude")
+	if err == nil {
+		t.Fatal("expected error on exec failure")
+	}
+}
+
+func TestClient_NewSessionWithEnv_envFlags(t *testing.T) {
+	r := &mockRunner{exitCode: 0}
+	c := tmux.NewClient(r)
+	env := map[string]string{"KEY": "val"}
+	_ = c.NewSessionWithEnv("s", "/tmp", env, "cmd")
+	foundE := false
+	for i, a := range r.lastArgs {
+		if a == "-e" && i+1 < len(r.lastArgs) && r.lastArgs[i+1] == "KEY=val" {
+			foundE = true
+			break
+		}
+	}
+	if !foundE {
+		t.Errorf("expected -e KEY=val in args, got %v", r.lastArgs)
+	}
+}
+
+func TestClient_NewSessionWithEnv_cmdIsLastArg(t *testing.T) {
+	r := &mockRunner{exitCode: 0}
+	c := tmux.NewClient(r)
+	_ = c.NewSessionWithEnv("s", "/tmp", nil, "claude --skip")
+	last := r.lastArgs[len(r.lastArgs)-1]
+	if last != "claude --skip" {
+		t.Errorf("last arg = %q, want %q", last, "claude --skip")
+	}
+}

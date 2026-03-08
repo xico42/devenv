@@ -1,20 +1,285 @@
 package cmd
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+
+	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/devenv/internal/session"
+	"github.com/xico42/devenv/internal/state"
+	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/devenv/internal/worktree"
 )
+
+func sessionsDir() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.local/share/devenv/sessions"
+}
+
+func newSessionService() *session.Service {
+	tc := tmux.NewClient(tmux.NewRealRunner())
+	return session.NewService(tc, sessionsDir())
+}
+
+func resolveAgentCmd(project string) string {
+	agent := cfg.ResolveAgent(project)
+	cmd := agent.Cmd
+	if cmd == "" {
+		cmd = semconv.DefaultAgentCmd
+	}
+	if len(agent.Args) > 0 {
+		cmd = cmd + " " + strings.Join(agent.Args, " ")
+	}
+	return cmd
+}
+
+func resolveAgentEnv(project string) map[string]string {
+	agent := cfg.ResolveAgent(project)
+	env := make(map[string]string)
+	for k, v := range agent.Env {
+		env[k] = v
+	}
+	return env
+}
 
 var sessionCmd = &cobra.Command{
 	Use:   "session",
-	Short: "Manage Claude Code sessions on the active droplet",
+	Short: "Manage agent sessions",
+}
+
+// ── start ────────────────────────────────────────────────────────────────────
+
+var sessionStartAttach bool
+
+var sessionStartCmd = &cobra.Command{
+	Use:   "start <project> <branch>",
+	Short: "Start a new agent session in a worktree",
+	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("not implemented")
+		project, branch := args[0], args[1]
+
+		wtSvc := newWorktreeService()
+		path, err := wtSvc.WorktreePath(project, branch)
+		if err != nil {
+			return sessionErr(cmd, err)
+		}
+
+		name := semconv.SessionName(project, branch)
+		fmt.Fprintf(cmd.OutOrStdout(), "Starting session %s...  ", name)
+
+		svc := newSessionService()
+		err = svc.Start(session.StartRequest{
+			Project: project,
+			Branch:  branch,
+			Path:    path,
+			Cmd:     resolveAgentCmd(project),
+			Env:     resolveAgentEnv(project),
+			Attach:  sessionStartAttach,
+		})
+		if err != nil {
+			fmt.Fprintln(cmd.OutOrStdout())
+			return sessionErr(cmd, err)
+		}
+
+		fmt.Fprintln(cmd.OutOrStdout(), "done")
+		if !sessionStartAttach {
+			fmt.Fprintf(cmd.OutOrStdout(), "Attach with: devenv session attach %s\n", name)
+		}
+
+		if sessionStartAttach {
+			return execTmuxAttach(name)
+		}
 		return nil
 	},
 }
 
+// ── list ─────────────────────────────────────────────────────────────────────
+
+var sessionListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all active sessions",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc := newSessionService()
+		sessions, err := svc.List()
+		if err != nil {
+			return fmt.Errorf("listing sessions: %w", err)
+		}
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "SESSION\tPROJECT\tBRANCH\tSTATUS")
+		for _, s := range sessions {
+			project := s.Project
+			if project == "" {
+				project = "--"
+			}
+			branch := s.Branch
+			if branch == "" {
+				branch = "--"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, project, branch, s.Status)
+		}
+		return w.Flush()
+	},
+}
+
+// ── show ─────────────────────────────────────────────────────────────────────
+
+var sessionShowCmd = &cobra.Command{
+	Use:   "show <session>",
+	Short: "Show details for a session",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc := newSessionService()
+		info, err := svc.Show(args[0])
+		if err != nil {
+			return sessionErr(cmd, err)
+		}
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "Session:\t%s\n", info.Name)
+		fmt.Fprintf(w, "Project:\t%s\n", info.Project)
+		fmt.Fprintf(w, "Branch:\t%s\n", info.Branch)
+		fmt.Fprintf(w, "Status:\t%s\n", info.Status)
+		if info.Question != "" {
+			fmt.Fprintf(w, "Question:\t%s\n", info.Question)
+		}
+		if !info.StartedAt.IsZero() {
+			fmt.Fprintf(w, "Started:\t%s\n", info.StartedAt.Format("2006-01-02T15:04:05Z"))
+		}
+		return w.Flush()
+	},
+}
+
+// ── attach ───────────────────────────────────────────────────────────────────
+
+var sessionAttachCmd = &cobra.Command{
+	Use:   "attach <session>",
+	Short: "Attach to an existing session",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc := newSessionService()
+		_, err := svc.Show(args[0]) // verify it exists
+		if err != nil {
+			return sessionErr(cmd, err)
+		}
+		return execTmuxAttach(args[0])
+	},
+}
+
+// execTmuxAttach replaces the current process with tmux attach-session.
+func execTmuxAttach(name string) error {
+	tmuxBin, err := lookPath("tmux")
+	if err != nil {
+		return fmt.Errorf("tmux not found: %w", err)
+	}
+	err = syscall.Exec(tmuxBin, []string{"tmux", "attach-session", "-t", name}, os.Environ())
+	if err != nil {
+		return fmt.Errorf("attaching to session: %w", err)
+	}
+	return nil
+}
+
+// lookPath wraps exec.LookPath for testability.
+var lookPath = func(file string) (string, error) {
+	return exec.LookPath(file)
+}
+
+// ── stop ─────────────────────────────────────────────────────────────────────
+
+var sessionStopForce bool
+
+var sessionStopCmd = &cobra.Command{
+	Use:   "stop <session>",
+	Short: "Stop a session",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		svc := newSessionService()
+
+		if !sessionStopForce {
+			info, err := svc.Show(name)
+			if err != nil {
+				return sessionErr(cmd, err)
+			}
+			if info.Status == state.SessionRunning {
+				fmt.Fprintf(cmd.OutOrStdout(), "Session %s is running. Stop? [y/N] ", name)
+				scanner := bufio.NewScanner(cmd.InOrStdin())
+				scanner.Scan()
+				if scanner.Text() != "y" && scanner.Text() != "Y" {
+					fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+					return nil
+				}
+			}
+		}
+
+		fmt.Fprintf(cmd.OutOrStdout(), "Stopping %s...  ", name)
+		if err := svc.Stop(name); err != nil {
+			fmt.Fprintln(cmd.OutOrStdout())
+			return sessionErr(cmd, err)
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "done")
+		return nil
+	},
+}
+
+// ── mark-running ─────────────────────────────────────────────────────────────
+
+var markRunningSession string
+
+var sessionMarkRunningCmd = &cobra.Command{
+	Use:    "mark-running",
+	Short:  "Internal: reset session status to running",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc := newSessionService()
+		return svc.MarkRunning(markRunningSession)
+	},
+}
+
+// ── error helper ─────────────────────────────────────────────────────────────
+
+func sessionErr(cmd *cobra.Command, err error) error {
+	switch {
+	case errors.Is(err, session.ErrSessionExists):
+		var sesErr *session.SessionExistsError
+		if errors.As(err, &sesErr) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Error: session %s already exists. Attach with 'devenv session attach %s'.\n", sesErr.Name, sesErr.Name)
+		} else {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s\n", err)
+		}
+	case errors.Is(err, session.ErrSessionNotFound):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s\n", err)
+	case errors.Is(err, session.ErrPathNotFound):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s\n", err)
+	case errors.Is(err, worktree.ErrNotCloned):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s\n", err)
+	case errors.Is(err, worktree.ErrWorktreeNotFound):
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s\n", err)
+	default:
+		return err
+	}
+	os.Exit(1)
+	return nil
+}
+
 func init() {
+	sessionStartCmd.Flags().BoolVar(&sessionStartAttach, "attach", false, "attach to the session after starting")
+	sessionStopCmd.Flags().BoolVar(&sessionStopForce, "force", false, "skip confirmation prompt")
+	sessionMarkRunningCmd.Flags().StringVar(&markRunningSession, "session", "", "session name")
+
+	sessionCmd.AddCommand(sessionStartCmd)
+	sessionCmd.AddCommand(sessionListCmd)
+	sessionCmd.AddCommand(sessionShowCmd)
+	sessionCmd.AddCommand(sessionAttachCmd)
+	sessionCmd.AddCommand(sessionStopCmd)
+	sessionCmd.AddCommand(sessionMarkRunningCmd)
 	rootCmd.AddCommand(sessionCmd)
 }

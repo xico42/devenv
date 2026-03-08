@@ -30,14 +30,15 @@ type Config struct {
 
 // DefaultsConfig holds default values applied to every droplet.
 type DefaultsConfig struct {
-	Token            string `toml:"token"             validate:"omitempty" secret:"true"`
-	SSHKeyID         string `toml:"ssh_key_id"        validate:"omitempty"`
-	Region           string `toml:"region"            validate:"omitempty"`
-	Size             string `toml:"size"              validate:"omitempty"`
-	TailscaleAuthKey string `toml:"tailscale_auth_key" validate:"omitempty" secret:"true"`
-	Image            string `toml:"image"             validate:"omitempty"`
-	ProjectsDir      string `toml:"projects_dir"      validate:"omitempty"`
-	GitIdentityFile  string `toml:"git_identity_file" validate:"omitempty"`
+	Token            string      `toml:"token"             validate:"omitempty" secret:"true"`
+	SSHKeyID         string      `toml:"ssh_key_id"        validate:"omitempty"`
+	Region           string      `toml:"region"            validate:"omitempty"`
+	Size             string      `toml:"size"              validate:"omitempty"`
+	TailscaleAuthKey string      `toml:"tailscale_auth_key" validate:"omitempty" secret:"true"`
+	Image            string      `toml:"image"             validate:"omitempty"`
+	ProjectsDir      string      `toml:"projects_dir"      validate:"omitempty"`
+	GitIdentityFile  string      `toml:"git_identity_file" validate:"omitempty"`
+	Agent            AgentConfig `toml:"agent"`
 }
 
 // ProfileConfig holds per-profile overrides.
