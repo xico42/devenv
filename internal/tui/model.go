@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -15,7 +16,6 @@ import (
 	"github.com/xico42/devenv/internal/project"
 	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/state"
 	"github.com/xico42/devenv/internal/tmux"
 	"github.com/xico42/devenv/internal/worktree"
 )
@@ -48,12 +48,11 @@ type Model struct {
 	keys   keyMap
 	help   help.Model
 
-	cfg         *config.Config
-	wtSvc       *worktree.Service
-	sesSvc      *session.Service
-	projSvc     *project.Service
-	tmuxClient  *tmux.Client
-	sessionsDir string
+	cfg        *config.Config
+	wtSvc      *worktree.Service
+	sesSvc     *session.Service
+	projSvc    *project.Service
+	tmuxClient *tmux.Client
 
 	width  int
 	height int
@@ -62,7 +61,7 @@ type Model struct {
 	PendingAttach string
 
 	// Delete confirmation state.
-	deleteTarget *Item
+	confirm *confirmModel
 
 	// Status message for async operations.
 	statusMsg string
@@ -78,23 +77,21 @@ func NewModel(
 	sesSvc *session.Service,
 	projSvc *project.Service,
 	tmuxClient *tmux.Client,
-	sessionsDir string,
 ) Model {
 	keys := defaultKeyMap()
 	l := newList(nil)
 	h := help.New()
 
 	return Model{
-		screen:      screenList,
-		list:        l,
-		keys:        keys,
-		help:        h,
-		cfg:         cfg,
-		wtSvc:       wtSvc,
-		sesSvc:      sesSvc,
-		projSvc:     projSvc,
-		tmuxClient:  tmuxClient,
-		sessionsDir: sessionsDir,
+		screen:     screenList,
+		list:       l,
+		keys:       keys,
+		help:       h,
+		cfg:        cfg,
+		wtSvc:      wtSvc,
+		sesSvc:     sesSvc,
+		projSvc:    projSvc,
+		tmuxClient: tmuxClient,
 	}
 }
 
@@ -168,6 +165,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case worktreeCreatedMsg:
 		m.statusMsg = fmt.Sprintf("Created %s/%s", msg.project, msg.branch)
+		m.screen = screenList
+		m.form = nil
 		return m, m.refreshCmd()
 	}
 
@@ -229,7 +228,9 @@ func (m Model) View() tea.View {
 	case screenForm:
 		content = m.form.View()
 	case screenConfirmDelete:
-		content = m.viewConfirmDelete()
+		if m.confirm != nil {
+			content = m.confirm.View()
+		}
 	default:
 		content = m.viewList()
 	}
@@ -277,7 +278,6 @@ func tickCmd() tea.Cmd {
 func (m Model) refreshCmd() tea.Cmd {
 	wtSvc := m.wtSvc
 	tmuxClient := m.tmuxClient
-	sessionsDir := m.sessionsDir
 	cfg := m.cfg
 
 	return func() tea.Msg {
@@ -300,30 +300,27 @@ func (m Model) refreshCmd() tea.Cmd {
 			}
 		}
 
-		// 2. Session states (for agent status/question)
-		if sessionsDir != "" {
-			states, err := state.ListSessions(sessionsDir)
+		// 2. Agent sessions (query tmux for status)
+		if tmuxClient != nil {
+			names, err := tmuxClient.ListSessions()
 			if err == nil {
-				for _, s := range states {
-					data.agentSessions[s.Session] = agentInfo{
-						status:   s.Status,
-						question: s.Question,
+				for _, name := range names {
+					// "~sh" suffix matches semconv.ShellSessionName convention.
+					if strings.HasSuffix(name, "~sh") {
+						data.shellSessions[name] = true
+						continue
+					}
+					status, _ := tmuxClient.GetOption(name, semconv.TmuxOptionStatus)
+					question, _ := tmuxClient.GetOption(name, semconv.TmuxOptionQuestion)
+					data.agentSessions[name] = agentInfo{
+						status:   status,
+						question: question,
 					}
 				}
 			}
 		}
 
-		// 3. Tmux sessions (for shell session detection)
-		if tmuxClient != nil {
-			names, err := tmuxClient.ListSessions()
-			if err == nil {
-				for _, name := range names {
-					data.shellSessions[name] = true
-				}
-			}
-		}
-
-		// 4. Project list with clone status
+		// 3. Project list with clone status
 		if cfg != nil {
 			for name := range cfg.Projects {
 				p := cfg.Projects[name]
@@ -335,6 +332,16 @@ func (m Model) refreshCmd() tea.Cmd {
 					}
 				}
 				data.projects = append(data.projects, projEntry{name: name, cloned: cloned})
+			}
+		}
+
+		// 4. Clone dirs for main worktree detection
+		if cfg != nil {
+			data.cloneDirs = make(map[string]string)
+			for name, p := range cfg.Projects {
+				if rp, err := config.RepoPath(p.Repo); err == nil {
+					data.cloneDirs[name] = semconv.CloneDir(cfg.Defaults.ProjectsDir, rp)
+				}
 			}
 		}
 

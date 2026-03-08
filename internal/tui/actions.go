@@ -1,16 +1,13 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/xico42/devenv/internal/config"
 	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/state"
 	"github.com/xico42/devenv/internal/worktree"
 )
 
@@ -192,57 +189,72 @@ func (m Model) cloneAction() tea.Cmd {
 
 func (m Model) startDelete() (tea.Model, tea.Cmd) {
 	sel := m.selectedItem()
-	if sel == nil || sel.Group == groupProject {
+	if sel == nil {
 		return m, nil
 	}
-	m.deleteTarget = sel
+	if sel.Group == groupProject {
+		m.statusMsg = "cannot delete a project entry — select a worktree"
+		return m, nil
+	}
+	if sel.IsMain {
+		m.statusMsg = "cannot delete the main worktree"
+		return m, nil
+	}
+	m.confirm = newConfirmModel(*sel)
 	m.screen = screenConfirmDelete
 	return m, nil
 }
 
 func (m Model) updateConfirmDelete(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "y", "Y":
-			return m.confirmDeleteYes()
-		default:
-			return m.confirmDeleteNo()
-		}
-	}
-	return m, nil
-}
-
-func (m Model) confirmDeleteYes() (tea.Model, tea.Cmd) {
-	target := m.deleteTarget
-	m.deleteTarget = nil
-	m.screen = screenList
-
-	if target == nil {
+	kp, ok := msg.(tea.KeyPressMsg)
+	if !ok {
 		return m, nil
 	}
+
+	switch kp.String() {
+	case "esc", "q":
+		return m.confirmDeleteNo()
+	case "enter":
+		switch m.confirm.selected() {
+		case deleteCancel:
+			return m.confirmDeleteNo()
+		case deleteAll:
+			return m.confirmDeleteAll()
+		case deleteAgent:
+			return m.confirmDeleteAgent()
+		case deleteShell:
+			return m.confirmDeleteShell()
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.confirm, cmd = m.confirm.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m Model) confirmDeleteAll() (tea.Model, tea.Cmd) {
+	target := m.confirm.target
+	m.confirm = nil
+	m.screen = screenList
 
 	sesSvc := m.sesSvc
 	wtSvc := m.wtSvc
 	tmuxClient := m.tmuxClient
-	sessionsDir := m.sessionsDir
 	project := target.Project
 	branch := target.Branch
 
 	return m, func() tea.Msg {
-		// Kill agent session if exists.
 		agentName := semconv.SessionName(project, branch)
 		if running, _ := tmuxClient.HasSession(agentName); running {
 			_ = sesSvc.Stop(agentName)
 		}
 
-		// Kill shell session if exists.
 		shellName := semconv.ShellSessionName(project, branch)
 		if running, _ := tmuxClient.HasSession(shellName); running {
 			_ = tmuxClient.KillSession(shellName)
 		}
 
-		// Remove worktree.
 		err := wtSvc.Delete(worktree.DeleteRequest{
 			Project: project,
 			Branch:  branch,
@@ -251,29 +263,49 @@ func (m Model) confirmDeleteYes() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return errMsg{err: err}
 		}
+		return m.refreshCmd()()
+	}
+}
 
-		_ = state.ClearSession(sessionsDir, agentName)
+func (m Model) confirmDeleteAgent() (tea.Model, tea.Cmd) {
+	target := m.confirm.target
+	m.confirm = nil
+	m.screen = screenList
 
-		return itemsMsg(nil) // trigger refresh
+	sesSvc := m.sesSvc
+	tmuxClient := m.tmuxClient
+	project := target.Project
+	branch := target.Branch
+
+	return m, func() tea.Msg {
+		agentName := semconv.SessionName(project, branch)
+		if running, _ := tmuxClient.HasSession(agentName); running {
+			_ = sesSvc.Stop(agentName)
+		}
+		return m.refreshCmd()()
+	}
+}
+
+func (m Model) confirmDeleteShell() (tea.Model, tea.Cmd) {
+	target := m.confirm.target
+	m.confirm = nil
+	m.screen = screenList
+
+	tmuxClient := m.tmuxClient
+	project := target.Project
+	branch := target.Branch
+
+	return m, func() tea.Msg {
+		shellName := semconv.ShellSessionName(project, branch)
+		if running, _ := tmuxClient.HasSession(shellName); running {
+			_ = tmuxClient.KillSession(shellName)
+		}
+		return m.refreshCmd()()
 	}
 }
 
 func (m Model) confirmDeleteNo() (tea.Model, tea.Cmd) {
-	m.deleteTarget = nil
+	m.confirm = nil
 	m.screen = screenList
 	return m, nil
-}
-
-func (m Model) viewConfirmDelete() string {
-	if m.deleteTarget == nil {
-		return m.viewList()
-	}
-	name := m.deleteTarget.Project
-	if m.deleteTarget.Branch != "" {
-		name += " / " + m.deleteTarget.Branch
-	}
-	prompt := lipgloss.NewStyle().Bold(true).Render(
-		fmt.Sprintf("Delete %s? [y/n]", name),
-	)
-	return fmt.Sprintf("%s\n\n%s", m.viewList(), prompt)
 }

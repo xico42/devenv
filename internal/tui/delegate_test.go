@@ -7,7 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 
-	"github.com/xico42/devenv/internal/state"
+	"github.com/xico42/devenv/internal/semconv"
 )
 
 func TestDelegate_Height(t *testing.T) {
@@ -27,7 +27,7 @@ func TestDelegate_Spacing(t *testing.T) {
 func TestDelegate_Render_agentWaiting(t *testing.T) {
 	d := newDelegate()
 	m := list.New([]list.Item{
-		Item{Project: "myapp", Branch: "feature", Group: groupAgent, HasAgent: true, AgentStatus: state.SessionWaiting, HasShell: true},
+		Item{Project: "myapp", Branch: "feature", Group: groupAgent, HasAgent: true, AgentStatus: semconv.StatusWaiting, HasShell: true},
 	}, d, 80, 10)
 
 	var buf bytes.Buffer
@@ -82,7 +82,7 @@ func TestDelegate_Render_nonItemListItem(t *testing.T) {
 func TestDelegate_Render_agentRunning(t *testing.T) {
 	d := newDelegate()
 	items := []list.Item{
-		Item{Project: "myapp", Branch: "main", Group: groupAgent, HasAgent: true, AgentStatus: state.SessionRunning},
+		Item{Project: "myapp", Branch: "main", Group: groupAgent, HasAgent: true, AgentStatus: semconv.StatusRunning},
 		Item{Project: "other", Branch: "feat", Group: groupWorktree},
 	}
 	m := list.New(items, d, 80, 10)

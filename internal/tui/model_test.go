@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/devenv/internal/tmux"
 )
 
 func TestModel_Update_windowResize(t *testing.T) {
@@ -162,12 +165,15 @@ func TestModel_View_list(t *testing.T) {
 }
 
 func TestModel_View_confirmDelete(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
 	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
 	m.list = newList(nil)
 
 	v := m.View()
-	// viewConfirmDelete is a stub returning "", so content may be empty — just verify no panic.
-	_ = v
+	if v.Content == "" {
+		t.Error("View() in screenConfirmDelete returned empty content")
+	}
 }
 
 func TestModel_View_form(t *testing.T) {
@@ -252,21 +258,6 @@ func TestModel_refreshCmd_nilServices(t *testing.T) {
 	}
 }
 
-func TestModel_refreshCmd_withSessionsDir(t *testing.T) {
-	m := Model{screen: screenList}
-	m.list = newList(nil)
-	// Provide a non-empty sessionsDir that doesn't exist — ListSessions returns empty.
-	m.sessionsDir = "/tmp/devenv-test-nonexistent-sessions"
-	cmd := m.refreshCmd()
-	if cmd == nil {
-		t.Fatal("refreshCmd() returned nil")
-	}
-	msg := cmd()
-	if _, ok := msg.(itemsMsg); !ok {
-		t.Errorf("refreshCmd() produced %T, want itemsMsg", msg)
-	}
-}
-
 func TestModel_refreshCmd_withConfig(t *testing.T) {
 	m := Model{screen: screenList}
 	m.list = newList(nil)
@@ -322,12 +313,17 @@ func TestModel_updateList_refresh(t *testing.T) {
 }
 
 func TestModel_screenConfirmDelete_update(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
 	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
 	m.list = newList(nil)
 
-	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{}))
+	// Esc should cancel and return to list.
+	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	um := updated.(Model)
-	_ = um // stub just returns m, nil
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want %d after esc", um.screen, screenList)
+	}
 }
 
 func TestModel_screenForm_update(t *testing.T) {
@@ -351,7 +347,7 @@ func TestModel_Init(t *testing.T) {
 }
 
 func TestNewModel(t *testing.T) {
-	m := NewModel(nil, nil, nil, nil, nil, "")
+	m := NewModel(nil, nil, nil, nil, nil)
 	if m.screen != screenList {
 		t.Errorf("screen = %d, want %d", m.screen, screenList)
 	}
@@ -395,10 +391,18 @@ func TestModel_noSelectionActions(t *testing.T) {
 		t.Error("startDelete with no selection should stay on screenList")
 	}
 
-	// viewConfirmDelete with nil deleteTarget falls back to viewList.
-	s := m.viewConfirmDelete()
-	if s == "" {
-		t.Error("viewConfirmDelete with nil target should return viewList output (non-empty)")
+	// startDelete on project item sets statusMsg but stays on list.
+	items2 := []Item{{Project: "infra", Group: groupProject}}
+	listItems2 := make([]list.Item, len(items2))
+	for i, it := range items2 {
+		listItems2[i] = it
+	}
+	m2 := Model{screen: screenList}
+	m2.list = newList(listItems2)
+	m2.keys = defaultKeyMap()
+	nm2, _ := m2.startDelete()
+	if nm2.(Model).screen != screenList {
+		t.Error("startDelete on project item should stay on screenList")
 	}
 }
 
@@ -498,4 +502,76 @@ func TestTickCmd(t *testing.T) {
 	if cmd == nil {
 		t.Error("tickCmd() returned nil")
 	}
+}
+
+// mockTmuxRunner is a stateful Runner that returns scripted responses in order.
+// Each call to Run pops the next response from the queue.
+type mockTmuxRunner struct {
+	responses []mockTmuxResponse
+	idx       int
+}
+
+type mockTmuxResponse struct {
+	stdout   string
+	exitCode int
+}
+
+func (r *mockTmuxRunner) Run(args ...string) (string, string, int, error) {
+	if r.idx >= len(r.responses) {
+		return "", "", 0, nil
+	}
+	resp := r.responses[r.idx]
+	r.idx++
+	return resp.stdout, "", resp.exitCode, nil
+}
+
+func TestModel_refreshCmd_withTmuxClient(t *testing.T) {
+	// Sessions: one agent session, one shell session.
+	agentSession := semconv.SessionName("myapp", "feat")      // "myapp-feat"
+	shellSession := semconv.ShellSessionName("myapp", "feat") // "myapp-feat~sh"
+
+	listOutput := agentSession + "\n" + shellSession + "\n"
+
+	// Runner response sequence:
+	//   1. list-sessions → the two session names
+	//   2. show-option for TmuxOptionStatus on agentSession → "running"
+	//   3. show-option for TmuxOptionQuestion on agentSession → ""
+	runner := &mockTmuxRunner{
+		responses: []mockTmuxResponse{
+			{stdout: listOutput, exitCode: 0}, // list-sessions
+			{stdout: "running", exitCode: 0},  // GetOption status
+			{stdout: "", exitCode: 0},         // GetOption question
+		},
+	}
+	client := tmux.NewClient(runner)
+
+	m := Model{screen: screenList}
+	m.list = newList(nil)
+	m.tmuxClient = client
+
+	cmd := m.refreshCmd()
+	if cmd == nil {
+		t.Fatal("refreshCmd() returned nil")
+	}
+	msg := cmd()
+	items, ok := msg.(itemsMsg)
+	if !ok {
+		t.Fatalf("refreshCmd() produced %T, want itemsMsg", msg)
+	}
+
+	// GetOption must have been called for the agent session (not the shell session).
+	// That means runner advanced at least to index 2 (list-sessions + show-option status).
+	if runner.idx < 2 {
+		t.Errorf("runner.idx = %d, expected at least 2 calls (list-sessions + show-option)", runner.idx)
+	}
+
+	// No item should have a Branch that ends with "~sh" — shell sessions are
+	// filtered out before items are built.
+	for _, item := range items {
+		if strings.HasSuffix(item.Branch, "~sh") {
+			t.Errorf("shell session branch %q leaked into items", item.Branch)
+		}
+	}
+
+	_ = shellSession
 }

@@ -26,6 +26,7 @@ type Item struct {
 	Question    string
 	HasShell    bool
 	Cloned      bool
+	IsMain      bool // true for the main worktree (clone dir)
 }
 
 func (i Item) FilterValue() string {
@@ -41,6 +42,7 @@ type refreshResult struct {
 	agentSessions map[string]agentInfo // keyed by session name (project-branch)
 	shellSessions map[string]bool      // keyed by shell session name (project-branch~sh)
 	projects      []projEntry
+	cloneDirs     map[string]string // project name -> clone dir path
 }
 
 type wtEntry struct {
@@ -76,6 +78,7 @@ func buildItems(data refreshResult) []list.Item {
 			Branch:   wt.branch,
 			Path:     wt.path,
 			HasShell: data.shellSessions[shellName],
+			IsMain:   data.cloneDirs[wt.project] == wt.path,
 		}
 
 		if agent, ok := data.agentSessions[sessionName]; ok {

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/xico42/devenv/internal/state"
+	"github.com/xico42/devenv/internal/semconv"
 )
 
 func TestItem_FilterValue_worktree(t *testing.T) {
@@ -29,7 +29,7 @@ func TestBuildItems_groupOrdering(t *testing.T) {
 			{project: "myapp", branch: "feature", path: "/p/myapp/wt/feature"},
 		},
 		agentSessions: map[string]agentInfo{
-			"myapp-feature": {status: state.SessionRunning},
+			"myapp-feature": {status: semconv.StatusRunning},
 		},
 		shellSessions: map[string]bool{},
 		projects: []projEntry{
@@ -75,7 +75,7 @@ func TestBuildItems_agentStatus(t *testing.T) {
 			{project: "myapp", branch: "feat", path: "/p/wt/feat"},
 		},
 		agentSessions: map[string]agentInfo{
-			"myapp-feat": {status: state.SessionWaiting, question: "Allow?"},
+			"myapp-feat": {status: semconv.StatusWaiting, question: "Allow?"},
 		},
 		shellSessions: map[string]bool{},
 		projects:      []projEntry{{name: "myapp", cloned: true}},
@@ -84,8 +84,8 @@ func TestBuildItems_agentStatus(t *testing.T) {
 	items := buildItems(data)
 	item := items[0].(Item)
 
-	if item.AgentStatus != state.SessionWaiting {
-		t.Errorf("AgentStatus = %q, want %q", item.AgentStatus, state.SessionWaiting)
+	if item.AgentStatus != semconv.StatusWaiting {
+		t.Errorf("AgentStatus = %q, want %q", item.AgentStatus, semconv.StatusWaiting)
 	}
 	if item.Question != "Allow?" {
 		t.Errorf("Question = %q, want %q", item.Question, "Allow?")
@@ -134,6 +134,63 @@ func TestBuildItems_cloneStatus(t *testing.T) {
 	second := items[1].(Item)
 	if second.Cloned {
 		t.Error("expected uncloned-proj to have Cloned = false")
+	}
+}
+
+func TestBuildItems_isMain(t *testing.T) {
+	data := refreshResult{
+		worktrees: []wtEntry{
+			{project: "myapp", branch: "main", path: "/projects/github.com/user/myapp"},
+			{project: "myapp", branch: "feature", path: "/projects/github.com/user/myapp/worktrees/feature"},
+		},
+		agentSessions: map[string]agentInfo{},
+		shellSessions: map[string]bool{},
+		projects:      []projEntry{{name: "myapp", cloned: true}},
+		cloneDirs:     map[string]string{"myapp": "/projects/github.com/user/myapp"},
+	}
+
+	items := buildItems(data)
+	if len(items) != 2 {
+		t.Fatalf("got %d items, want 2", len(items))
+	}
+
+	// After sorting (groupWorktree, alpha by project then branch):
+	// "feature" < "main", so item 0 is feature, item 1 is main.
+	featureItem := items[0].(Item)
+	if featureItem.Branch != "feature" {
+		t.Fatalf("item 0: expected branch feature, got %s", featureItem.Branch)
+	}
+	if featureItem.IsMain {
+		t.Error("feature worktree should not be IsMain")
+	}
+
+	mainItem := items[1].(Item)
+	if mainItem.Branch != "main" {
+		t.Fatalf("item 1: expected branch main, got %s", mainItem.Branch)
+	}
+	if !mainItem.IsMain {
+		t.Error("main worktree should be IsMain")
+	}
+}
+
+func TestBuildItems_isMain_noCfg(t *testing.T) {
+	// When cfg is nil, refreshCmd does not allocate cloneDirs (nil map).
+	// buildItems must handle nil cloneDirs without panicking and must not
+	// set IsMain on any worktree item.
+	data := refreshResult{
+		worktrees: []wtEntry{
+			{project: "myapp", branch: "main", path: "/projects/github.com/user/myapp"},
+		},
+		agentSessions: map[string]agentInfo{},
+		shellSessions: map[string]bool{},
+		projects:      []projEntry{{name: "myapp", cloned: true}},
+		cloneDirs:     nil, // nil: produced when cfg == nil
+	}
+
+	items := buildItems(data)
+	item := items[0].(Item)
+	if item.IsMain {
+		t.Error("IsMain should be false when cloneDirs is nil (no cfg)")
 	}
 }
 

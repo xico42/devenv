@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/xico42/devenv/internal/state"
+	"github.com/xico42/devenv/internal/semconv"
 )
 
 // ANSI 256 colors (mosh-safe, no true color).
@@ -60,9 +60,9 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	// Line 2: status tags
 	var tags []string
 	switch {
-	case item.HasAgent && item.AgentStatus == state.SessionWaiting:
+	case item.HasAgent && item.AgentStatus == semconv.StatusWaiting:
 		tags = append(tags, waitingTag.Render("WAITING FOR INPUT"))
-	case item.HasAgent && item.AgentStatus == state.SessionRunning:
+	case item.HasAgent && item.AgentStatus == semconv.StatusRunning:
 		tags = append(tags, runningTag.Render("running"))
 	case item.HasAgent:
 		tags = append(tags, runningTag.Render("agent"))

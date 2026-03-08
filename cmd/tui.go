@@ -23,7 +23,7 @@ var tuiCmd = &cobra.Command{
 		sesSvc := newSessionService()
 		projSvc := project.NewService(cfg, project.NewRealGitRunner())
 
-		m := tui.NewModel(cfg, wtSvc, sesSvc, projSvc, tmuxClient, sessionsDir())
+		m := tui.NewModel(cfg, wtSvc, sesSvc, projSvc, tmuxClient)
 		p := tea.NewProgram(m)
 
 		finalModel, err := p.Run()

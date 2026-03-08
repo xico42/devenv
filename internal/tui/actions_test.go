@@ -33,29 +33,34 @@ func TestStartDelete_projectItem(t *testing.T) {
 
 	updated, _ := m.startDelete()
 	um := updated.(Model)
-	// Can't delete a project-only item.
+	// Can't delete a project-only item — stays on list with a status message.
 	if um.screen != screenList {
 		t.Errorf("screen = %d, want %d (should stay on list for project items)", um.screen, screenList)
 	}
+	if um.statusMsg == "" {
+		t.Error("statusMsg should be set when trying to delete a project item")
+	}
 }
 
-func TestConfirmDelete_cancel(t *testing.T) {
-	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: &target,
+func TestStartDelete_mainWorktree(t *testing.T) {
+	items := []Item{{Project: "myapp", Branch: "main", Group: groupWorktree, IsMain: true}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
 	}
-	m.list = newList(nil)
+	m := Model{screen: screenList}
+	m.list = newList(listItems)
 
-	// Press 'n' to cancel.
-	// We test the state transition, not the exact key.
-	updated, _ := m.confirmDeleteNo()
+	updated, _ := m.startDelete()
 	um := updated.(Model)
 	if um.screen != screenList {
-		t.Errorf("screen = %d, want %d after cancel", um.screen, screenList)
+		t.Errorf("screen = %d, want %d (should stay on list for main worktree)", um.screen, screenList)
 	}
-	if um.deleteTarget != nil {
-		t.Error("deleteTarget should be nil after cancel")
+	if um.statusMsg == "" {
+		t.Error("statusMsg should be set when trying to delete main worktree")
+	}
+	if !strings.Contains(um.statusMsg, "main worktree") {
+		t.Errorf("statusMsg = %q, should mention main worktree", um.statusMsg)
 	}
 }
 
@@ -73,86 +78,213 @@ func TestStartDelete_worktreeItem(t *testing.T) {
 	if um.screen != screenConfirmDelete {
 		t.Errorf("screen = %d, want %d (should go to confirm)", um.screen, screenConfirmDelete)
 	}
-	if um.deleteTarget == nil {
-		t.Fatal("deleteTarget should be set")
+	if um.confirm == nil {
+		t.Fatal("confirm should be set after startDelete on worktree item")
 	}
-	if um.deleteTarget.Project != "myapp" || um.deleteTarget.Branch != "feat" {
-		t.Errorf("deleteTarget = %v/%v, want myapp/feat", um.deleteTarget.Project, um.deleteTarget.Branch)
+	if um.confirm.target.Project != "myapp" || um.confirm.target.Branch != "feat" {
+		t.Errorf("confirm.target = %v/%v, want myapp/feat", um.confirm.target.Project, um.confirm.target.Branch)
 	}
 }
 
-func TestUpdateConfirmDelete_yKey(t *testing.T) {
+// ── confirmModel unit tests ──────────────────────────────────────────────────
+
+func TestNewConfirmModel_noSessions(t *testing.T) {
 	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: &target,
+	c := newConfirmModel(target)
+	if len(c.choices) != 2 {
+		t.Errorf("choices = %d, want 2 (delete worktree + cancel)", len(c.choices))
 	}
+	if c.choices[0].action != deleteAll {
+		t.Errorf("first choice = %v, want deleteAll", c.choices[0].action)
+	}
+	if c.choices[1].action != deleteCancel {
+		t.Errorf("last choice = %v, want deleteCancel", c.choices[1].action)
+	}
+}
+
+func TestNewConfirmModel_agentOnly(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true, AgentStatus: "running"}
+	c := newConfirmModel(target)
+	if len(c.choices) != 3 {
+		t.Errorf("choices = %d, want 3", len(c.choices))
+	}
+	if c.choices[0].action != deleteAll {
+		t.Errorf("first = %v, want deleteAll", c.choices[0].action)
+	}
+	if c.choices[1].action != deleteAgent {
+		t.Errorf("second = %v, want deleteAgent", c.choices[1].action)
+	}
+}
+
+func TestNewConfirmModel_bothSessions(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true, HasShell: true, AgentStatus: "running"}
+	c := newConfirmModel(target)
+	if len(c.choices) != 4 {
+		t.Errorf("choices = %d, want 4", len(c.choices))
+	}
+	if c.choices[0].action != deleteAll {
+		t.Errorf("choices[0].action = %v, want deleteAll", c.choices[0].action)
+	}
+	if c.choices[1].action != deleteAgent {
+		t.Errorf("choices[1].action = %v, want deleteAgent", c.choices[1].action)
+	}
+	if c.choices[2].action != deleteShell {
+		t.Errorf("choices[2].action = %v, want deleteShell", c.choices[2].action)
+	}
+	if c.choices[3].action != deleteCancel {
+		t.Errorf("choices[3].action = %v, want deleteCancel", c.choices[3].action)
+	}
+}
+
+func TestConfirmModel_navigation(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
+	c := newConfirmModel(target)
+	if c.cursor != 0 {
+		t.Errorf("initial cursor = %d, want 0", c.cursor)
+	}
+
+	// j moves down
+	c, _ = c.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	if c.cursor != 1 {
+		t.Errorf("cursor after j = %d, want 1", c.cursor)
+	}
+
+	// k moves back up
+	c, _ = c.Update(tea.KeyPressMsg(tea.Key{Code: 'k', Text: "k"}))
+	if c.cursor != 0 {
+		t.Errorf("cursor after k = %d, want 0", c.cursor)
+	}
+
+	// k at top stays at 0
+	c, _ = c.Update(tea.KeyPressMsg(tea.Key{Code: 'k', Text: "k"}))
+	if c.cursor != 0 {
+		t.Errorf("cursor after k at top = %d, want 0", c.cursor)
+	}
+
+	// j at bottom stays at last choice index
+	c2 := newConfirmModel(target)
+	lastIdx := len(c2.choices) - 1
+	for i := 0; i < lastIdx+2; i++ {
+		c2, _ = c2.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	}
+	if c2.cursor != lastIdx {
+		t.Errorf("cursor after j past bottom = %d, want %d", c2.cursor, lastIdx)
+	}
+}
+
+func TestConfirmModel_selection(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
+	c := newConfirmModel(target)
+	if c.selected() != deleteAll {
+		t.Errorf("selected() = %v, want deleteAll", c.selected())
+	}
+
+	// Move to cancel
+	c, _ = c.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	if c.selected() != deleteCancel {
+		t.Errorf("selected() = %v, want deleteCancel", c.selected())
+	}
+}
+
+func TestConfirmModel_View(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true, AgentStatus: "running"}
+	c := newConfirmModel(target)
+	out := stripANSI(c.View())
+	if !strings.Contains(out, "myapp") {
+		t.Errorf("View() should contain project name: %q", out)
+	}
+	if !strings.Contains(out, "Agent session") {
+		t.Errorf("View() should mention active agent: %q", out)
+	}
+}
+
+// ── updateConfirmDelete integration tests ────────────────────────────────────
+
+func TestUpdateConfirmDelete_esc(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
 	m.list = newList(nil)
 
-	msg := tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"})
-	updated, cmd := m.updateConfirmDelete(msg)
+	updated, _ := m.updateConfirmDelete(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	um := updated.(Model)
-
 	if um.screen != screenList {
-		t.Errorf("screen = %d, want %d after 'y'", um.screen, screenList)
+		t.Errorf("screen = %d, want %d after esc", um.screen, screenList)
 	}
-	if um.deleteTarget != nil {
-		t.Error("deleteTarget should be nil after confirm")
+	if um.confirm != nil {
+		t.Error("confirm should be nil after esc")
 	}
-	// cmd is the delete func — just verify it's non-nil (services are nil so we don't call it)
+}
+
+func TestUpdateConfirmDelete_enterDeleteAll(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
+	m.list = newList(nil)
+
+	// cursor starts at 0 (deleteAll) — press enter immediately
+	updated, cmd := m.updateConfirmDelete(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want %d after enter with deleteAll", um.screen, screenList)
+	}
+	if um.confirm != nil {
+		t.Error("confirm should be nil after successful delete")
+	}
+	_ = cmd // delete cmd — not called (services are nil)
+}
+
+func TestUpdateConfirmDelete_enterCancel(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
+	m.list = newList(nil)
+
+	// Move to cancel choice (last item).
+	m.confirm, _ = m.confirm.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+
+	updated, _ := m.updateConfirmDelete(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	um := updated.(Model)
+	// Cancel selection should go back to list.
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want %d after cancel selection", um.screen, screenList)
+	}
+	if um.confirm != nil {
+		t.Error("confirm should be nil after cancel")
+	}
+}
+
+func TestUpdateConfirmDelete_nonKeyMsg(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
+	m.list = newList(nil)
+
+	updated, cmd := m.updateConfirmDelete(cloneDoneMsg{project: "x"})
+	um := updated.(Model)
+	if um.screen != screenConfirmDelete {
+		t.Errorf("screen = %d, want %d for non-key msg", um.screen, screenConfirmDelete)
+	}
 	_ = cmd
 }
 
-func TestUpdateConfirmDelete_otherKey(t *testing.T) {
+func TestConfirmDeleteNo(t *testing.T) {
 	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: &target,
-	}
-	m.list = newList(nil)
-
-	msg := tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"})
-	updated, _ := m.updateConfirmDelete(msg)
-	um := updated.(Model)
-
-	if um.screen != screenList {
-		t.Errorf("screen = %d, want %d after non-y key", um.screen, screenList)
-	}
-	if um.deleteTarget != nil {
-		t.Error("deleteTarget should be nil after cancel")
-	}
-}
-
-func TestViewConfirmDelete_nilTarget(t *testing.T) {
 	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
 	m.list = newList(nil)
-	m.keys = defaultKeyMap()
 
-	// Should not panic and should return non-empty (falls through to viewList).
-	out := m.viewConfirmDelete()
-	if out == "" {
-		t.Error("viewConfirmDelete() with nil target should return viewList output")
+	updated, _ := m.confirmDeleteNo()
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want %d after cancel", um.screen, screenList)
+	}
+	if um.confirm != nil {
+		t.Error("confirm should be nil after cancel")
 	}
 }
 
-func TestViewConfirmDelete_withTarget(t *testing.T) {
-	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: &target,
-	}
-	m.list = newList(nil)
-	m.keys = defaultKeyMap()
-
-	out := m.viewConfirmDelete()
-	if out == "" {
-		t.Error("viewConfirmDelete() returned empty string")
-	}
-	// Should contain the project name.
-	if !strings.Contains(out, "myapp") {
-		t.Errorf("viewConfirmDelete() output does not contain 'myapp': %q", out)
-	}
-}
+// ── Clone / Attach / Shell action tests ─────────────────────────────────────
 
 func TestCloneAction_nilSelection(t *testing.T) {
 	m := Model{screen: screenList}
@@ -283,59 +415,6 @@ func TestResolveAgentCommand_withArgs(t *testing.T) {
 	}
 }
 
-func TestUpdateConfirmDelete_nonKeyMsg(t *testing.T) {
-	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: &target,
-	}
-	m.list = newList(nil)
-
-	// Non-key message should not change state.
-	updated, cmd := m.updateConfirmDelete(cloneDoneMsg{project: "x"})
-	um := updated.(Model)
-	if um.screen != screenConfirmDelete {
-		t.Errorf("screen = %d, want %d for non-key msg", um.screen, screenConfirmDelete)
-	}
-	if cmd != nil {
-		t.Error("non-key message should return nil cmd")
-	}
-}
-
-func TestConfirmDeleteYes_nilTarget(t *testing.T) {
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: nil,
-	}
-	m.list = newList(nil)
-
-	updated, cmd := m.confirmDeleteYes()
-	um := updated.(Model)
-	if um.screen != screenList {
-		t.Errorf("screen = %d, want %d", um.screen, screenList)
-	}
-	if cmd != nil {
-		t.Error("confirmDeleteYes with nil target should return nil cmd")
-	}
-}
-
-func TestUpdateConfirmDelete_capitalY(t *testing.T) {
-	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree}
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: &target,
-	}
-	m.list = newList(nil)
-
-	msg := tea.KeyPressMsg(tea.Key{Code: 'Y', Text: "Y"})
-	updated, _ := m.updateConfirmDelete(msg)
-	um := updated.(Model)
-
-	if um.screen != screenList {
-		t.Errorf("screen = %d, want %d after 'Y'", um.screen, screenList)
-	}
-}
-
 func TestAttachAction_worktreeGroup_returnsCmd(t *testing.T) {
 	cfg := &config.Config{}
 	items := []Item{{Project: "myapp", Branch: "feat", Path: "/some/path", Group: groupWorktree}}
@@ -351,24 +430,150 @@ func TestAttachAction_worktreeGroup_returnsCmd(t *testing.T) {
 		t.Fatal("attachAction() on worktree item should return non-nil cmd")
 	}
 	// We don't call cmd() because sesSvc is nil and would panic.
-	// Just verify a cmd was returned.
 }
 
-func TestViewConfirmDelete_projectOnly(t *testing.T) {
-	target := Item{Project: "myapp", Branch: "", Group: groupProject}
-	m := Model{
-		screen:       screenConfirmDelete,
-		deleteTarget: &target,
+func TestResolveAgentEnv_empty(t *testing.T) {
+	cfg := &config.Config{}
+	env := resolveAgentEnv(cfg, "myapp")
+	if env == nil {
+		t.Error("resolveAgentEnv should return non-nil map")
 	}
-	m.list = newList(nil)
-	m.keys = defaultKeyMap()
+	if len(env) != 0 {
+		t.Errorf("resolveAgentEnv returned %d entries, want 0 for empty config", len(env))
+	}
+}
 
-	out := m.viewConfirmDelete()
-	if !strings.Contains(out, "myapp") {
-		t.Errorf("viewConfirmDelete() output does not contain 'myapp': %q", out)
+func TestResolveAgentEnv_withEnv(t *testing.T) {
+	cfg := &config.Config{
+		Projects: map[string]config.ProjectConfig{
+			"myapp": {
+				Agent: config.AgentConfig{
+					Env: map[string]string{
+						"MY_VAR": "hello",
+						"OTHER":  "world",
+					},
+				},
+			},
+		},
 	}
-	// Should not contain " / " when no branch.
-	if strings.Contains(out, " / ") {
-		t.Errorf("viewConfirmDelete() should not contain ' / ' for project-only: %q", out)
+	env := resolveAgentEnv(cfg, "myapp")
+	if env["MY_VAR"] != "hello" {
+		t.Errorf("MY_VAR = %q, want %q", env["MY_VAR"], "hello")
+	}
+	if env["OTHER"] != "world" {
+		t.Errorf("OTHER = %q, want %q", env["OTHER"], "world")
+	}
+}
+
+// ── confirmDeleteAgent / confirmDeleteShell ──────────────────────────────────
+
+func TestConfirmDeleteAgent_returnsCmd(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
+	m.list = newList(nil)
+	// tmuxClient nil — confirmDeleteAgent builds a cmd; calling it would panic on HasSession.
+	// We just verify the model state transitions correctly.
+	updated, cmd := m.confirmDeleteAgent()
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want %d after confirmDeleteAgent", um.screen, screenList)
+	}
+	if um.confirm != nil {
+		t.Error("confirm should be nil after confirmDeleteAgent")
+	}
+	if cmd == nil {
+		t.Error("confirmDeleteAgent should return a non-nil cmd")
+	}
+}
+
+func TestConfirmDeleteShell_returnsCmd(t *testing.T) {
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree, HasShell: true}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
+	m.list = newList(nil)
+	// tmuxClient nil — confirmDeleteShell builds a cmd; calling it would panic on HasSession.
+	updated, cmd := m.confirmDeleteShell()
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want %d after confirmDeleteShell", um.screen, screenList)
+	}
+	if um.confirm != nil {
+		t.Error("confirm should be nil after confirmDeleteShell")
+	}
+	if cmd == nil {
+		t.Error("confirmDeleteShell should return a non-nil cmd")
+	}
+}
+
+func TestUpdateConfirmDelete_enterDeleteAgent(t *testing.T) {
+	// Build a target with an agent session so deleteAgent appears as a choice.
+	target := Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
+	m.list = newList(nil)
+
+	// choices[0] = deleteAll, choices[1] = deleteAgent — move down once.
+	m.confirm, _ = m.confirm.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	if m.confirm.selected() != deleteAgent {
+		t.Fatalf("precondition: selected = %v, want deleteAgent", m.confirm.selected())
+	}
+
+	updated, cmd := m.updateConfirmDelete(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want screenList after deleteAgent", um.screen)
+	}
+	if um.confirm != nil {
+		t.Error("confirm should be nil after deleteAgent")
+	}
+	if cmd == nil {
+		t.Error("deleteAgent should return non-nil cmd")
+	}
+}
+
+func TestUpdateConfirmDelete_enterDeleteShell(t *testing.T) {
+	// Build a target with both sessions so deleteShell appears as a choice.
+	target := Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true, HasShell: true}
+	m := Model{screen: screenConfirmDelete}
+	m.confirm = newConfirmModel(target)
+	m.list = newList(nil)
+
+	// choices[0]=deleteAll, [1]=deleteAgent, [2]=deleteShell — move down twice.
+	m.confirm, _ = m.confirm.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	m.confirm, _ = m.confirm.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	if m.confirm.selected() != deleteShell {
+		t.Fatalf("precondition: selected = %v, want deleteShell", m.confirm.selected())
+	}
+
+	updated, cmd := m.updateConfirmDelete(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want screenList after deleteShell", um.screen)
+	}
+	if um.confirm != nil {
+		t.Error("confirm should be nil after deleteShell")
+	}
+	if cmd == nil {
+		t.Error("deleteShell should return non-nil cmd")
+	}
+}
+
+func TestConfirmView_shellOnly(t *testing.T) {
+	// Cover the hasShell-only branch in newConfirmModel View.
+	target := Item{Project: "myapp", Branch: "feat", Group: groupWorktree, HasShell: true}
+	c := newConfirmModel(target)
+	if len(c.choices) != 3 {
+		t.Errorf("choices = %d, want 3 (deleteAll + deleteShell + cancel)", len(c.choices))
+	}
+	if c.choices[0].action != deleteAll {
+		t.Errorf("choices[0] = %v, want deleteAll", c.choices[0].action)
+	}
+	if c.choices[1].action != deleteShell {
+		t.Errorf("choices[1] = %v, want deleteShell", c.choices[1].action)
+	}
+	out := stripANSI(c.View())
+	if !strings.Contains(out, "Shell session") {
+		t.Errorf("View() should mention Shell session: %q", out)
 	}
 }
