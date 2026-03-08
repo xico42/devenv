@@ -1,7 +1,9 @@
 package tmux_test
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/xico42/devenv/internal/tmux"
@@ -276,5 +278,79 @@ func TestClient_NewSessionWithEnv_cmdIsLastArg(t *testing.T) {
 	last := r.lastArgs[len(r.lastArgs)-1]
 	if last != "claude --skip" {
 		t.Errorf("last arg = %q, want %q", last, "claude --skip")
+	}
+}
+
+func TestGetOption(t *testing.T) {
+	mr := &mockRunner{stdout: "running\n"}
+	c := tmux.NewClient(mr)
+
+	val, err := c.GetOption("myapp-feat", "@devenv_status")
+	if err != nil {
+		t.Fatalf("GetOption() error = %v", err)
+	}
+	if val != "running" {
+		t.Errorf("GetOption() = %q, want %q", val, "running")
+	}
+	wantArgs := []string{"show-option", "-t", "myapp-feat", "-v", "@devenv_status"}
+	if !slices.Equal(mr.lastArgs, wantArgs) {
+		t.Errorf("args = %v, want %v", mr.lastArgs, wantArgs)
+	}
+}
+
+func TestGetOption_notSet(t *testing.T) {
+	mr := &mockRunner{stderr: "unknown option", exitCode: 1}
+	c := tmux.NewClient(mr)
+
+	val, err := c.GetOption("myapp-feat", "@devenv_status")
+	if err != nil {
+		t.Fatalf("GetOption() error = %v", err)
+	}
+	if val != "" {
+		t.Errorf("GetOption() = %q, want empty string for unset option", val)
+	}
+}
+
+func TestGetOption_runnerError(t *testing.T) {
+	mr := &mockRunner{err: errors.New("boom")}
+	c := tmux.NewClient(mr)
+
+	_, err := c.GetOption("myapp-feat", "@devenv_status")
+	if err == nil {
+		t.Error("GetOption() should return error when runner fails")
+	}
+}
+
+func TestSetOption(t *testing.T) {
+	mr := &mockRunner{}
+	c := tmux.NewClient(mr)
+
+	err := c.SetOption("myapp-feat", "@devenv_status", "running")
+	if err != nil {
+		t.Fatalf("SetOption() error = %v", err)
+	}
+	wantArgs := []string{"set-option", "-t", "myapp-feat", "@devenv_status", "running"}
+	if !slices.Equal(mr.lastArgs, wantArgs) {
+		t.Errorf("args = %v, want %v", mr.lastArgs, wantArgs)
+	}
+}
+
+func TestSetOption_error(t *testing.T) {
+	mr := &mockRunner{stderr: "no such session", exitCode: 1}
+	c := tmux.NewClient(mr)
+
+	err := c.SetOption("myapp-feat", "@devenv_status", "running")
+	if err == nil {
+		t.Error("SetOption() should return error on non-zero exit")
+	}
+}
+
+func TestSetOption_runnerError(t *testing.T) {
+	mr := &mockRunner{err: errors.New("boom")}
+	c := tmux.NewClient(mr)
+
+	err := c.SetOption("myapp-feat", "@devenv_status", "running")
+	if err == nil {
+		t.Error("SetOption() should return error when runner fails")
 	}
 }

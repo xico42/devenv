@@ -4,10 +4,9 @@ import (
 	"errors"
 	"sort"
 	"testing"
-	"time"
 
+	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/state"
 	"github.com/xico42/devenv/internal/tmux"
 )
 
@@ -25,21 +24,21 @@ func (m *mockRunner) Run(args ...string) (string, string, int, error) {
 	return m.stdout, m.stderr, m.exitCode, m.err
 }
 
-func newService(t *testing.T, r *mockRunner) (*session.Service, string) {
+func newService(t *testing.T, r *mockRunner) *session.Service {
 	t.Helper()
-	dir := t.TempDir()
 	tc := tmux.NewClient(r)
-	return session.NewService(tc, dir), dir
+	return session.NewService(tc)
 }
 
 func TestStart_OK(t *testing.T) {
-	dir := t.TempDir()
 	r2 := &mockRunnerSequence{responses: []mockResponse{
 		{exitCode: 1}, // has-session → not found
 		{exitCode: 0}, // new-session → ok
+		{exitCode: 0}, // set-option status → ok
+		{exitCode: 0}, // set-option started_at → ok
 	}}
 	tc := tmux.NewClient(r2)
-	svc := session.NewService(tc, dir)
+	svc := session.NewService(tc)
 
 	wtDir := t.TempDir() // simulate existing worktree
 	err := svc.Start(session.StartRequest{
@@ -52,27 +51,12 @@ func TestStart_OK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-
-	// Verify state file was written
-	s, err := state.LoadSession(dir, "myapp-feature")
-	if err != nil {
-		t.Fatalf("LoadSession() error = %v", err)
-	}
-	if s == nil {
-		t.Fatal("state file not written")
-	}
-	if s.Status != state.SessionRunning {
-		t.Errorf("Status = %q, want running", s.Status)
-	}
-	if s.Project != "myapp" {
-		t.Errorf("Project = %q, want myapp", s.Project)
-	}
 }
 
 func TestStart_DuplicateSession(t *testing.T) {
 	// has-session returns 0 → session exists
 	r := &mockRunner{exitCode: 0}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	err := svc.Start(session.StartRequest{
 		Project: "myapp",
@@ -91,7 +75,7 @@ func TestStart_DuplicateSession(t *testing.T) {
 func TestStart_MissingPath(t *testing.T) {
 	// has-session returns 1 → no session
 	r := &mockRunner{exitCode: 1}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	err := svc.Start(session.StartRequest{
 		Project: "myapp",
@@ -108,49 +92,49 @@ func TestStart_MissingPath(t *testing.T) {
 }
 
 func TestMarkRunning_OK(t *testing.T) {
-	r := &mockRunner{exitCode: 0}
-	svc, dir := newService(t, r)
-
-	// Write a waiting state
-	s := &state.SessionState{
-		Session:   "myapp-feature",
-		Project:   "myapp",
-		Branch:    "feature",
-		Status:    state.SessionWaiting,
-		Question:  "Should I proceed?",
-		UpdatedAt: time.Now().UTC().Add(-5 * time.Minute),
-		StartedAt: time.Now().UTC().Add(-10 * time.Minute),
-	}
-	if err := state.SaveSession(dir, s); err != nil {
-		t.Fatal(err)
-	}
+	// MarkRunning calls set-option twice (status + question)
+	r2 := &mockRunnerSequence{responses: []mockResponse{
+		{exitCode: 0}, // set-option status → ok
+		{exitCode: 0}, // set-option question → ok
+	}}
+	tc := tmux.NewClient(r2)
+	svc := session.NewService(tc)
 
 	if err := svc.MarkRunning("myapp-feature"); err != nil {
 		t.Fatalf("MarkRunning() error = %v", err)
 	}
 
-	got, _ := state.LoadSession(dir, "myapp-feature")
-	if got.Status != state.SessionRunning {
-		t.Errorf("Status = %q, want running", got.Status)
+	// Verify correct tmux calls were made
+	if len(r2.calls) != 2 {
+		t.Fatalf("expected 2 tmux calls, got %d", len(r2.calls))
 	}
-	if got.Question != "" {
-		t.Errorf("Question = %q, want empty", got.Question)
+	// First call: set-option status=running
+	if len(r2.calls[0]) < 5 {
+		t.Fatalf("unexpected args for first set-option call: %v", r2.calls[0])
+	}
+	if r2.calls[0][4] != semconv.StatusRunning {
+		t.Errorf("set-option status = %q, want %q", r2.calls[0][4], semconv.StatusRunning)
 	}
 }
 
-func TestMarkRunning_MissingFile(t *testing.T) {
-	r := &mockRunner{exitCode: 0}
-	svc, _ := newService(t, r)
+func TestMarkRunning_SuppressesError(t *testing.T) {
+	// set-option returns an error — MarkRunning must still return nil
+	r := &mockRunner{exitCode: 1, err: errors.New("tmux set-option failed")}
+	svc := newService(t, r)
 
-	// Should not error — silent no-op
+	// Should not error — set-option errors are suppressed
 	if err := svc.MarkRunning("nonexistent"); err != nil {
-		t.Fatalf("MarkRunning() on missing file error = %v", err)
+		t.Fatalf("MarkRunning() error = %v; want nil (errors suppressed)", err)
+	}
+	// Verify SetOption was actually attempted
+	if len(r.calls) == 0 {
+		t.Fatal("expected at least one tmux call, got none")
 	}
 }
 
 func TestMarkRunning_EmptyName(t *testing.T) {
 	r := &mockRunner{exitCode: 0}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	if err := svc.MarkRunning(""); err != nil {
 		t.Fatalf("MarkRunning() on empty name error = %v", err)
@@ -186,7 +170,7 @@ func (m *mockRunnerSequence) Run(args ...string) (string, string, int, error) {
 func TestList_Empty(t *testing.T) {
 	// tmux list-sessions returns exit 1 (no sessions)
 	r := &mockRunner{exitCode: 1}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	sessions, err := svc.List()
 	if err != nil {
@@ -197,25 +181,20 @@ func TestList_Empty(t *testing.T) {
 	}
 }
 
-func TestList_WithStateFiles(t *testing.T) {
-	// tmux returns two sessions
-	r := &mockRunner{exitCode: 0, stdout: "myapp-feature\napi-main\n"}
-	svc, dir := newService(t, r)
-
-	// Write state for one of them
-	now := time.Now().UTC().Truncate(time.Second)
-	ss := &state.SessionState{
-		Session:   "myapp-feature",
-		Project:   "myapp",
-		Branch:    "feature",
-		Status:    state.SessionWaiting,
-		Question:  "Proceed?",
-		StartedAt: now,
-		UpdatedAt: now,
-	}
-	if err := state.SaveSession(dir, ss); err != nil {
-		t.Fatal(err)
-	}
+func TestList_WithOptions(t *testing.T) {
+	// list-sessions returns two sessions, then for each session 3x get-option calls
+	// Order: list-sessions, myapp-feature: status, question, started_at, api-main: status, question, started_at
+	r2 := &mockRunnerSequence{responses: []mockResponse{
+		{exitCode: 0, stdout: "myapp-feature\napi-main\n"}, // list-sessions
+		{exitCode: 0, stdout: semconv.StatusWaiting},       // get-option status (myapp-feature)
+		{exitCode: 0, stdout: "Proceed?"},                  // get-option question (myapp-feature)
+		{exitCode: 0, stdout: ""},                          // get-option started_at (myapp-feature)
+		{exitCode: 0, stdout: ""},                          // get-option status (api-main) → empty
+		{exitCode: 0, stdout: ""},                          // get-option question (api-main) → empty
+		{exitCode: 0, stdout: ""},                          // get-option started_at (api-main) → empty
+	}}
+	tc := tmux.NewClient(r2)
+	svc := session.NewService(tc)
 
 	sessions, err := svc.List()
 	if err != nil {
@@ -230,16 +209,16 @@ func TestList_WithStateFiles(t *testing.T) {
 		return sessions[i].Name < sessions[j].Name
 	})
 
-	// api-main has no state file → unknown
+	// api-main has no options set → empty status
 	if sessions[0].Name != "api-main" {
 		t.Errorf("sessions[0].Name = %q, want api-main", sessions[0].Name)
 	}
-	if sessions[0].Status != "unknown" {
-		t.Errorf("sessions[0].Status = %q, want unknown", sessions[0].Status)
+	if sessions[0].Status != "" {
+		t.Errorf("sessions[0].Status = %q, want empty", sessions[0].Status)
 	}
 
-	// myapp-feature has state → waiting
-	if sessions[1].Status != state.SessionWaiting {
+	// myapp-feature has options → waiting
+	if sessions[1].Status != semconv.StatusWaiting {
 		t.Errorf("sessions[1].Status = %q, want waiting", sessions[1].Status)
 	}
 	if sessions[1].Question != "Proceed?" {
@@ -248,22 +227,15 @@ func TestList_WithStateFiles(t *testing.T) {
 }
 
 func TestShow_OK(t *testing.T) {
-	// has-session returns 0 → exists
-	r := &mockRunner{exitCode: 0}
-	svc, dir := newService(t, r)
-
-	now := time.Now().UTC().Truncate(time.Second)
-	ss := &state.SessionState{
-		Session:   "myapp-feature",
-		Project:   "myapp",
-		Branch:    "feature",
-		Status:    state.SessionRunning,
-		StartedAt: now,
-		UpdatedAt: now,
-	}
-	if err := state.SaveSession(dir, ss); err != nil {
-		t.Fatal(err)
-	}
+	// has-session → exists, then 3x get-option calls
+	r2 := &mockRunnerSequence{responses: []mockResponse{
+		{exitCode: 0}, // has-session → exists
+		{exitCode: 0, stdout: semconv.StatusRunning},  // get-option status
+		{exitCode: 0, stdout: ""},                     // get-option question
+		{exitCode: 0, stdout: "2024-01-01T00:00:00Z"}, // get-option started_at
+	}}
+	tc := tmux.NewClient(r2)
+	svc := session.NewService(tc)
 
 	info, err := svc.Show("myapp-feature")
 	if err != nil {
@@ -272,15 +244,18 @@ func TestShow_OK(t *testing.T) {
 	if info.Name != "myapp-feature" {
 		t.Errorf("Name = %q, want myapp-feature", info.Name)
 	}
-	if info.Status != state.SessionRunning {
+	if info.Status != semconv.StatusRunning {
 		t.Errorf("Status = %q, want running", info.Status)
+	}
+	if info.StartedAt.IsZero() {
+		t.Error("StartedAt should be non-zero")
 	}
 }
 
 func TestShow_NotFound(t *testing.T) {
 	// has-session returns 1 → not found
 	r := &mockRunner{exitCode: 1}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	_, err := svc.Show("nonexistent")
 	if err == nil {
@@ -291,46 +266,40 @@ func TestShow_NotFound(t *testing.T) {
 	}
 }
 
-func TestShow_NoStateFile(t *testing.T) {
-	// has-session returns 0 → exists in tmux, but no state file
-	r := &mockRunner{exitCode: 0}
-	svc, _ := newService(t, r)
+func TestShow_NoOptions(t *testing.T) {
+	// has-session returns 0 → exists, get-option calls return empty
+	r2 := &mockRunnerSequence{responses: []mockResponse{
+		{exitCode: 0}, // has-session → exists
+		{exitCode: 0}, // get-option status → empty
+		{exitCode: 0}, // get-option question → empty
+		{exitCode: 0}, // get-option started_at → empty
+	}}
+	tc := tmux.NewClient(r2)
+	svc := session.NewService(tc)
 
 	info, err := svc.Show("manual-session")
 	if err != nil {
 		t.Fatalf("Show() error = %v", err)
 	}
-	if info.Status != "unknown" {
-		t.Errorf("Status = %q, want unknown", info.Status)
+	if info.Status != "" {
+		t.Errorf("Status = %q, want empty", info.Status)
 	}
 }
 
 func TestStop_OK(t *testing.T) {
 	// All tmux calls return 0 (has-session exists, kill-session succeeds)
 	r := &mockRunner{exitCode: 0}
-	svc, dir := newService(t, r)
-
-	// Write state file
-	ss := &state.SessionState{Session: "myapp-feature", Status: state.SessionRunning}
-	if err := state.SaveSession(dir, ss); err != nil {
-		t.Fatal(err)
-	}
+	svc := newService(t, r)
 
 	err := svc.Stop("myapp-feature")
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
-
-	// State file should be deleted
-	got, _ := state.LoadSession(dir, "myapp-feature")
-	if got != nil {
-		t.Error("state file still exists after Stop")
-	}
 }
 
 func TestStop_NotFound(t *testing.T) {
 	r := &mockRunner{exitCode: 1}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	err := svc.Stop("nonexistent")
 	if err == nil {
@@ -344,7 +313,7 @@ func TestStop_NotFound(t *testing.T) {
 func TestStart_RunnerError(t *testing.T) {
 	// has-session returns a runner error (not just non-zero exit)
 	r := &mockRunner{exitCode: 1, err: errors.New("tmux exec failed")}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	err := svc.Start(session.StartRequest{
 		Project: "myapp",
@@ -360,7 +329,7 @@ func TestStart_RunnerError(t *testing.T) {
 func TestList_RunnerError(t *testing.T) {
 	// list-sessions returns a runner error
 	r := &mockRunner{exitCode: 1, err: errors.New("tmux exec failed")}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	_, err := svc.List()
 	if err == nil {
@@ -371,7 +340,7 @@ func TestList_RunnerError(t *testing.T) {
 func TestShow_RunnerError(t *testing.T) {
 	// has-session returns a runner error
 	r := &mockRunner{exitCode: 1, err: errors.New("tmux exec failed")}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	_, err := svc.Show("myapp-feature")
 	if err == nil {
@@ -386,7 +355,7 @@ func TestStop_KillError(t *testing.T) {
 		{exitCode: 1, err: errors.New("kill failed")}, // kill-session → error
 	}}
 	tc := tmux.NewClient(r)
-	svc := session.NewService(tc, t.TempDir())
+	svc := session.NewService(tc)
 
 	err := svc.Stop("myapp-feature")
 	if err == nil {
@@ -394,16 +363,14 @@ func TestStop_KillError(t *testing.T) {
 	}
 }
 
-func TestMarkRunning_SaveError(t *testing.T) {
-	// Use a directory that can't be written to as sessionsDir
-	r := &mockRunner{exitCode: 0}
+func TestMarkRunning_SetOptionError(t *testing.T) {
+	// set-option calls fail — errors are suppressed, MarkRunning always returns nil
+	r := &mockRunner{exitCode: 1, err: errors.New("tmux set-option failed")}
 	tc := tmux.NewClient(r)
-	// Point sessions dir at a non-existent deeply nested path to simulate save failure
-	svc := session.NewService(tc, "/nonexistent/path/sessions")
+	svc := session.NewService(tc)
 
-	// MarkRunning with a name that has no state file → returns nil (silent no-op)
 	if err := svc.MarkRunning("any-session"); err != nil {
-		t.Fatalf("MarkRunning with no state file should return nil: %v", err)
+		t.Fatalf("MarkRunning with set-option error should return nil: %v", err)
 	}
 }
 
@@ -420,7 +387,7 @@ func TestSessionExistsError(t *testing.T) {
 func TestStart_StatError(t *testing.T) {
 	// has-session returns 1 (no existing session)
 	r := &mockRunner{exitCode: 1}
-	svc, _ := newService(t, r)
+	svc := newService(t, r)
 
 	// A path with a null byte causes os.Stat to fail with EINVAL, which is not ErrNotExist
 	err := svc.Start(session.StartRequest{

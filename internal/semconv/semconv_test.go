@@ -1,6 +1,7 @@
 package semconv_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/xico42/devenv/internal/semconv"
@@ -73,6 +74,19 @@ func TestShellSessionName(t *testing.T) {
 	for _, tt := range tests {
 		if got := semconv.ShellSessionName(tt.project, tt.branch); got != tt.want {
 			t.Errorf("ShellSessionName(%q, %q) = %q, want %q", tt.project, tt.branch, got, tt.want)
+		}
+	}
+}
+
+func TestTmuxOptionConstants(t *testing.T) {
+	// Verify constants have @ prefix (required for tmux user options).
+	for _, opt := range []string{
+		semconv.TmuxOptionStatus,
+		semconv.TmuxOptionQuestion,
+		semconv.TmuxOptionStartedAt,
+	} {
+		if !strings.HasPrefix(opt, "@") {
+			t.Errorf("tmux option %q must start with @", opt)
 		}
 	}
 }

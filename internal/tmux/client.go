@@ -74,6 +74,31 @@ func (c *Client) NewSessionWithEnv(name, dir string, env map[string]string, cmd 
 	return nil
 }
 
+// GetOption reads a tmux user-defined option from a session.
+// Returns empty string (no error) when the option is not set or the session does not exist (tmux exits 1).
+func (c *Client) GetOption(session, option string) (string, error) {
+	stdout, _, code, err := c.runner.Run("show-option", "-t", session, "-v", option)
+	if err != nil {
+		return "", fmt.Errorf("tmux show-option: %w", err)
+	}
+	if code != 0 {
+		return "", nil // option not set
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
+// SetOption sets a tmux user-defined option on a session.
+func (c *Client) SetOption(session, option, value string) error {
+	_, stderr, code, err := c.runner.Run("set-option", "-t", session, option, value)
+	if err != nil {
+		return fmt.Errorf("tmux set-option: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("tmux set-option: %s", strings.TrimSpace(stderr))
+	}
+	return nil
+}
+
 // ListSessions returns the names of all active tmux sessions.
 // Returns nil (no error) when no sessions exist (tmux exits 1 in that case).
 func (c *Client) ListSessions() ([]string, error) {

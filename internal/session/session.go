@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/state"
 	"github.com/xico42/devenv/internal/tmux"
 )
 
@@ -34,13 +33,12 @@ func (e *SessionExistsError) Unwrap() error {
 
 // Service manages devenv tmux sessions and their persisted state.
 type Service struct {
-	tmux        *tmux.Client
-	sessionsDir string
+	tmux *tmux.Client
 }
 
-// NewService creates a Service using the given tmux client and sessions state directory.
-func NewService(tmux *tmux.Client, sessionsDir string) *Service {
-	return &Service{tmux: tmux, sessionsDir: sessionsDir}
+// NewService creates a Service using the given tmux client.
+func NewService(tmux *tmux.Client) *Service {
+	return &Service{tmux: tmux}
 }
 
 // StartRequest holds parameters for starting a new session.
@@ -54,7 +52,8 @@ type StartRequest struct {
 }
 
 // Start creates a new detached tmux session for the given project/branch,
-// sets the DEVENV_SESSION env var, and persists a running session state file.
+// sets the DEVENV_SESSION env var, and sets @devenv_status and
+// @devenv_started_at tmux options on the new session.
 // Returns ErrSessionExists if a session with the derived name already exists.
 // Returns ErrPathNotFound if Path does not exist on disk.
 func (s *Service) Start(req StartRequest) error {
@@ -86,17 +85,8 @@ func (s *Service) Start(req StartRequest) error {
 	}
 
 	now := time.Now().UTC()
-	ss := &state.SessionState{
-		Session:   name,
-		Project:   req.Project,
-		Branch:    req.Branch,
-		Status:    state.SessionRunning,
-		StartedAt: now,
-		UpdatedAt: now,
-	}
-	if err := state.SaveSession(s.sessionsDir, ss); err != nil {
-		return fmt.Errorf("saving session state: %w", err)
-	}
+	_ = s.tmux.SetOption(name, semconv.TmuxOptionStatus, semconv.StatusRunning)
+	_ = s.tmux.SetOption(name, semconv.TmuxOptionStartedAt, now.Format(time.RFC3339))
 
 	return nil
 }
@@ -113,7 +103,6 @@ type SessionInfo struct {
 }
 
 // List returns a SessionInfo for every active tmux session.
-// Sessions with no state file get Status "unknown".
 func (s *Service) List() ([]SessionInfo, error) {
 	names, err := s.tmux.ListSessions()
 	if err != nil {
@@ -122,15 +111,11 @@ func (s *Service) List() ([]SessionInfo, error) {
 
 	var result []SessionInfo
 	for _, name := range names {
-		info := SessionInfo{Name: name, Status: "unknown"}
-		ss, err := state.LoadSession(s.sessionsDir, name)
-		if err == nil && ss != nil {
-			info.Project = ss.Project
-			info.Branch = ss.Branch
-			info.Status = ss.Status
-			info.Question = ss.Question
-			info.StartedAt = ss.StartedAt
-			info.UpdatedAt = ss.UpdatedAt
+		info := SessionInfo{Name: name}
+		info.Status, _ = s.tmux.GetOption(name, semconv.TmuxOptionStatus)
+		info.Question, _ = s.tmux.GetOption(name, semconv.TmuxOptionQuestion)
+		if ts, _ := s.tmux.GetOption(name, semconv.TmuxOptionStartedAt); ts != "" {
+			info.StartedAt, _ = time.Parse(time.RFC3339, ts)
 		}
 		result = append(result, info)
 	}
@@ -139,7 +124,6 @@ func (s *Service) List() ([]SessionInfo, error) {
 
 // Show returns the SessionInfo for a single named tmux session.
 // Returns ErrSessionNotFound if the session does not exist in tmux.
-// Sessions with no state file get Status "unknown".
 func (s *Service) Show(name string) (*SessionInfo, error) {
 	exists, err := s.tmux.HasSession(name)
 	if err != nil {
@@ -149,20 +133,16 @@ func (s *Service) Show(name string) (*SessionInfo, error) {
 		return nil, fmt.Errorf("%w: %s", ErrSessionNotFound, name)
 	}
 
-	info := &SessionInfo{Name: name, Status: "unknown"}
-	ss, err := state.LoadSession(s.sessionsDir, name)
-	if err == nil && ss != nil {
-		info.Project = ss.Project
-		info.Branch = ss.Branch
-		info.Status = ss.Status
-		info.Question = ss.Question
-		info.StartedAt = ss.StartedAt
-		info.UpdatedAt = ss.UpdatedAt
+	info := &SessionInfo{Name: name}
+	info.Status, _ = s.tmux.GetOption(name, semconv.TmuxOptionStatus)
+	info.Question, _ = s.tmux.GetOption(name, semconv.TmuxOptionQuestion)
+	if ts, _ := s.tmux.GetOption(name, semconv.TmuxOptionStartedAt); ts != "" {
+		info.StartedAt, _ = time.Parse(time.RFC3339, ts)
 	}
 	return info, nil
 }
 
-// Stop kills the named tmux session and removes its state file.
+// Stop kills the named tmux session.
 // Returns ErrSessionNotFound if the session does not exist in tmux.
 func (s *Service) Stop(name string) error {
 	exists, err := s.tmux.HasSession(name)
@@ -177,32 +157,16 @@ func (s *Service) Stop(name string) error {
 		return fmt.Errorf("killing session: %w", err)
 	}
 
-	if err := state.ClearSession(s.sessionsDir, name); err != nil {
-		return fmt.Errorf("clearing session state: %w", err)
-	}
-
 	return nil
 }
 
-// MarkRunning transitions a session's persisted state to running and clears
-// any pending question. If the session state file does not exist, it is a
-// silent no-op. Errors are suppressed — this method always returns nil.
+// MarkRunning transitions a session's status to running and clears any pending
+// question. Errors are suppressed — this method always returns nil.
 func (s *Service) MarkRunning(name string) error {
 	if name == "" {
 		return nil
 	}
-	ss, err := state.LoadSession(s.sessionsDir, name)
-	if err != nil {
-		return nil // silent — never fail
-	}
-	if ss == nil {
-		return nil // no state file — no-op
-	}
-	ss.Status = state.SessionRunning
-	ss.Question = ""
-	ss.UpdatedAt = time.Now().UTC()
-	if err := state.SaveSession(s.sessionsDir, ss); err != nil {
-		return nil // silent — never fail
-	}
+	_ = s.tmux.SetOption(name, semconv.TmuxOptionStatus, semconv.StatusRunning)
+	_ = s.tmux.SetOption(name, semconv.TmuxOptionQuestion, "")
 	return nil
 }

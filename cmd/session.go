@@ -14,19 +14,13 @@ import (
 
 	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/state"
 	"github.com/xico42/devenv/internal/tmux"
 	"github.com/xico42/devenv/internal/worktree"
 )
 
-func sessionsDir() string {
-	home, _ := os.UserHomeDir()
-	return home + "/.local/share/devenv/sessions"
-}
-
 func newSessionService() *session.Service {
 	tc := tmux.NewClient(tmux.NewRealRunner())
-	return session.NewService(tc, sessionsDir())
+	return session.NewService(tc)
 }
 
 func resolveAgentCmd(project string) string {
@@ -126,17 +120,9 @@ var sessionListCmd = &cobra.Command{
 			return fmt.Errorf("listing sessions: %w", err)
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "SESSION\tPROJECT\tBRANCH\tSTATUS")
+		fmt.Fprintln(w, "SESSION\tSTATUS")
 		for _, s := range sessions {
-			project := s.Project
-			if project == "" {
-				project = "--"
-			}
-			branch := s.Branch
-			if branch == "" {
-				branch = "--"
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, project, branch, s.Status)
+			fmt.Fprintf(w, "%s\t%s\n", s.Name, s.Status)
 		}
 		return w.Flush()
 	},
@@ -156,8 +142,6 @@ var sessionShowCmd = &cobra.Command{
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		fmt.Fprintf(w, "Session:\t%s\n", info.Name)
-		fmt.Fprintf(w, "Project:\t%s\n", info.Project)
-		fmt.Fprintf(w, "Branch:\t%s\n", info.Branch)
 		fmt.Fprintf(w, "Status:\t%s\n", info.Status)
 		if info.Question != "" {
 			fmt.Fprintf(w, "Question:\t%s\n", info.Question)
@@ -220,7 +204,7 @@ var sessionStopCmd = &cobra.Command{
 			if err != nil {
 				return sessionErr(cmd, err)
 			}
-			if info.Status == state.SessionRunning {
+			if info.Status == semconv.StatusRunning {
 				fmt.Fprintf(cmd.OutOrStdout(), "Session %s is running. Stop? [y/N] ", name)
 				scanner := bufio.NewScanner(cmd.InOrStdin())
 				scanner.Scan()
