@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/xico42/devenv/internal/config"
 )
@@ -40,9 +41,21 @@ func init() {
 
 // Execute runs the root command and returns any error.
 func Execute() error {
+	resetAllFlags(rootCmd)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return fmt.Errorf("%w", err)
 	}
 	return nil
+}
+
+// resetAllFlags resets the Changed state of all flags in the command tree so
+// that Execute() can be called multiple times (e.g. in tests) without flags
+// from a previous call leaking into the next.
+func resetAllFlags(cmd *cobra.Command) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+	cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+	for _, sub := range cmd.Commands() {
+		resetAllFlags(sub)
+	}
 }

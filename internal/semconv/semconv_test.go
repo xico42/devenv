@@ -95,7 +95,4 @@ func TestConstants(t *testing.T) {
 	if semconv.SessionEnvVar != "DEVENV_SESSION" {
 		t.Errorf("SessionEnvVar = %q, want DEVENV_SESSION", semconv.SessionEnvVar)
 	}
-	if semconv.DefaultAgentCmd != "claude" {
-		t.Errorf("DefaultAgentCmd = %q, want claude", semconv.DefaultAgentCmd)
-	}
 }

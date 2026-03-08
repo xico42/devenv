@@ -8,26 +8,15 @@ import (
 	"github.com/xico42/devenv/internal/config"
 )
 
-func TestAgentConfig_Defaults(t *testing.T) {
-	cfg, err := config.Load(filepath.Join(t.TempDir(), "config.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	agent := cfg.ResolveAgent("")
-	if agent.Cmd != "" {
-		t.Errorf("default Cmd = %q, want empty (caller applies default)", agent.Cmd)
-	}
-}
-
-func TestAgentConfig_GlobalOnly(t *testing.T) {
+func TestAgentByName_found(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")
 	content := `
-[defaults.agent]
+[agents.claude]
 cmd = "claude"
 args = ["--dangerously-skip-permissions"]
 
-[defaults.agent.env]
+[agents.claude.env]
 CLAUDE_CONFIG_DIR = "/custom"
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
@@ -37,7 +26,10 @@ CLAUDE_CONFIG_DIR = "/custom"
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := cfg.ResolveAgent("nonexistent")
+	agent, err := cfg.AgentByName("claude")
+	if err != nil {
+		t.Fatalf("AgentByName(claude) error: %v", err)
+	}
 	if agent.Cmd != "claude" {
 		t.Errorf("Cmd = %q, want claude", agent.Cmd)
 	}
@@ -49,28 +41,12 @@ CLAUDE_CONFIG_DIR = "/custom"
 	}
 }
 
-func TestAgentConfig_ProjectOverride(t *testing.T) {
+func TestAgentByName_notFound(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")
 	content := `
-[defaults.agent]
+[agents.claude]
 cmd = "claude"
-args = ["--global-flag"]
-
-[defaults.agent.env]
-GLOBAL_VAR = "global"
-SHARED_VAR = "from-global"
-
-[projects.myapp]
-repo = "git@github.com:user/myapp.git"
-
-[projects.myapp.agent]
-cmd = "aider"
-args = ["--model", "opus"]
-
-[projects.myapp.agent.env]
-PROJECT_VAR = "project"
-SHARED_VAR = "from-project"
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -79,41 +55,35 @@ SHARED_VAR = "from-project"
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := cfg.ResolveAgent("myapp")
-
-	// cmd and args: project replaces global
-	if agent.Cmd != "aider" {
-		t.Errorf("Cmd = %q, want aider", agent.Cmd)
-	}
-	if len(agent.Args) != 2 || agent.Args[0] != "--model" {
-		t.Errorf("Args = %v, want [--model opus]", agent.Args)
-	}
-
-	// env: merged, project wins on conflict
-	if agent.Env["GLOBAL_VAR"] != "global" {
-		t.Errorf("Env[GLOBAL_VAR] = %q, want global", agent.Env["GLOBAL_VAR"])
-	}
-	if agent.Env["PROJECT_VAR"] != "project" {
-		t.Errorf("Env[PROJECT_VAR] = %q, want project", agent.Env["PROJECT_VAR"])
-	}
-	if agent.Env["SHARED_VAR"] != "from-project" {
-		t.Errorf("Env[SHARED_VAR] = %q, want from-project", agent.Env["SHARED_VAR"])
+	_, err = cfg.AgentByName("nonexistent")
+	if err == nil {
+		t.Error("AgentByName(nonexistent) should return error")
 	}
 }
 
-func TestAgentConfig_ProjectPartialOverride(t *testing.T) {
+func TestAgentByName_noAgentsDefined(t *testing.T) {
+	cfg, err := config.Load(filepath.Join(t.TempDir(), "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = cfg.AgentByName("claude")
+	if err == nil {
+		t.Error("AgentByName on empty config should return error")
+	}
+}
+
+func TestAgentNames_sorted(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.toml")
 	content := `
-[defaults.agent]
+[agents.zed]
+cmd = "zed"
+
+[agents.aider]
+cmd = "aider"
+
+[agents.claude]
 cmd = "claude"
-args = ["--global-flag"]
-
-[projects.myapp]
-repo = "git@github.com:user/myapp.git"
-
-[projects.myapp.agent.env]
-EXTRA = "val"
 `
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -122,16 +92,22 @@ EXTRA = "val"
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := cfg.ResolveAgent("myapp")
+	names := cfg.AgentNames()
+	if len(names) != 3 {
+		t.Fatalf("AgentNames() = %v, want 3 entries", names)
+	}
+	if names[0] != "aider" || names[1] != "claude" || names[2] != "zed" {
+		t.Errorf("AgentNames() = %v, want [aider claude zed]", names)
+	}
+}
 
-	// cmd and args: fall back to global (project didn't set them)
-	if agent.Cmd != "claude" {
-		t.Errorf("Cmd = %q, want claude (global fallback)", agent.Cmd)
+func TestAgentNames_empty(t *testing.T) {
+	cfg, err := config.Load(filepath.Join(t.TempDir(), "config.toml"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(agent.Args) != 1 || agent.Args[0] != "--global-flag" {
-		t.Errorf("Args = %v, want [--global-flag] (global fallback)", agent.Args)
-	}
-	if agent.Env["EXTRA"] != "val" {
-		t.Errorf("Env[EXTRA] = %q, want val", agent.Env["EXTRA"])
+	names := cfg.AgentNames()
+	if len(names) != 0 {
+		t.Errorf("AgentNames() = %v, want empty", names)
 	}
 }

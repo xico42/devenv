@@ -24,6 +24,7 @@ const (
 	screenList = iota
 	screenForm
 	screenConfirmDelete
+	screenAgentPicker
 )
 
 const maxWidth = 80
@@ -68,6 +69,9 @@ type Model struct {
 
 	// Form sub-model.
 	form *formModel
+
+	// Agent picker sub-model.
+	agentPicker *agentPickerModel
 }
 
 // NewModel creates the TUI model with all required services.
@@ -176,6 +180,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirmDelete(msg)
 	case screenForm:
 		return m.updateForm(msg)
+	case screenAgentPicker:
+		return m.updateAgentPicker(msg)
 	default:
 		return m.updateList(msg)
 	}
@@ -194,7 +200,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Attach):
-			return m, m.attachAction()
+			return m.attachAction()
 
 		case key.Matches(msg, m.keys.Shell):
 			return m, m.shellAction()
@@ -230,6 +236,10 @@ func (m Model) View() tea.View {
 	case screenConfirmDelete:
 		if m.confirm != nil {
 			content = m.confirm.View()
+		}
+	case screenAgentPicker:
+		if m.agentPicker != nil {
+			content = m.agentPicker.View()
 		}
 	default:
 		content = m.viewList()

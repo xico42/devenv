@@ -14,8 +14,9 @@ func writeSessionConfig(t *testing.T, projectsDir string) string {
 	cfgPath := filepath.Join(cfgDir, "config.toml")
 	content := `[defaults]
 projects_dir = "` + projectsDir + `"
+agent = "echo-agent"
 
-[defaults.agent]
+[agents.echo-agent]
 cmd = "echo"
 args = ["hello"]
 
@@ -114,5 +115,37 @@ func TestSessionStart_unconfiguredProject(t *testing.T) {
 	err := runCmd(t, "--config", cfgPath, "session", "start", "notaproject", "main")
 	if err == nil {
 		t.Error("expected error for unconfigured project, got nil")
+	}
+}
+
+func TestSessionStart_agentFlag_recognized(t *testing.T) {
+	cfgPath := writeSessionConfig(t, t.TempDir())
+	err := runCmd(t, "--config", cfgPath, "session", "start", "--agent", "echo-agent", "notaproject", "main")
+	if err == nil {
+		t.Fatal("expected error for unconfigured project, got nil")
+	}
+	if strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("--agent flag not recognised: %v", err)
+	}
+}
+
+func TestSessionStart_noAgentConfigured_errors(t *testing.T) {
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "config.toml")
+	content := `[defaults]
+projects_dir = "` + t.TempDir() + `"
+
+[projects.myapp]
+repo = "git@github.com:user/myapp.git"
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runCmd(t, "--config", cfgPath, "session", "start", "myapp", "main")
+	if err == nil {
+		t.Fatal("expected error when no agent configured")
+	}
+	if !strings.Contains(err.Error(), "no agent specified") {
+		t.Errorf("error = %q, want to contain 'no agent specified'", err.Error())
 	}
 }

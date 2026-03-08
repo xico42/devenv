@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/xico42/devenv/internal/config"
 	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/session"
 	"github.com/xico42/devenv/internal/tmux"
@@ -23,25 +24,24 @@ func newSessionService() *session.Service {
 	return session.NewService(tc)
 }
 
-func resolveAgentCmd(project string) string {
-	agent := cfg.ResolveAgent(project)
-	cmd := agent.Cmd
-	if cmd == "" {
-		cmd = semconv.DefaultAgentCmd
+// resolveAgentName returns the agent name from the flag or config default.
+func resolveAgentName(flagValue string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
 	}
+	if cfg.Defaults.Agent != "" {
+		return cfg.Defaults.Agent, nil
+	}
+	return "", fmt.Errorf("no agent specified; use --agent or set defaults.agent in config")
+}
+
+// buildAgentCmd builds the full command string from an AgentConfig.
+func buildAgentCmd(agent config.AgentConfig) string {
+	cmd := agent.Cmd
 	if len(agent.Args) > 0 {
 		cmd = cmd + " " + strings.Join(agent.Args, " ")
 	}
 	return cmd
-}
-
-func resolveAgentEnv(project string) map[string]string {
-	agent := cfg.ResolveAgent(project)
-	env := make(map[string]string)
-	for k, v := range agent.Env {
-		env[k] = v
-	}
-	return env
 }
 
 var sessionCmd = &cobra.Command{
@@ -53,6 +53,7 @@ var sessionCmd = &cobra.Command{
 
 var sessionStartAttach bool
 var sessionStartNoCreate bool
+var sessionStartAgent string
 
 var sessionStartCmd = &cobra.Command{
 	Use:   "start <project> <branch>",
@@ -60,6 +61,19 @@ var sessionStartCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		project, branch := args[0], args[1]
+
+		flagAgent := ""
+		if cmd.Flags().Changed("agent") {
+			flagAgent = sessionStartAgent
+		}
+		agentName, err := resolveAgentName(flagAgent)
+		if err != nil {
+			return err
+		}
+		agent, err := cfg.AgentByName(agentName)
+		if err != nil {
+			return fmt.Errorf("resolving agent: %w", err)
+		}
 
 		wtSvc := newWorktreeService()
 		path, err := wtSvc.WorktreePath(project, branch)
@@ -86,8 +100,8 @@ var sessionStartCmd = &cobra.Command{
 			Project: project,
 			Branch:  branch,
 			Path:    path,
-			Cmd:     resolveAgentCmd(project),
-			Env:     resolveAgentEnv(project),
+			Cmd:     buildAgentCmd(agent),
+			Env:     agent.Env,
 			Attach:  sessionStartAttach,
 		})
 		if err != nil {
@@ -269,6 +283,7 @@ func sessionErr(cmd *cobra.Command, err error) error {
 func init() {
 	sessionStartCmd.Flags().BoolVar(&sessionStartAttach, "attach", false, "attach to the session after starting")
 	sessionStartCmd.Flags().BoolVar(&sessionStartNoCreate, "no-create", false, "fail if worktree does not exist instead of creating it")
+	sessionStartCmd.Flags().StringVar(&sessionStartAgent, "agent", "", "agent to use for the session")
 	sessionStopCmd.Flags().BoolVar(&sessionStopForce, "force", false, "skip confirmation prompt")
 	sessionMarkRunningCmd.Flags().StringVar(&markRunningSession, "session", "", "session name")
 

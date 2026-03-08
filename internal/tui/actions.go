@@ -1,45 +1,19 @@
 package tui
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/xico42/devenv/internal/config"
 	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/session"
 	"github.com/xico42/devenv/internal/worktree"
 )
 
-// resolveAgentCommand builds the full agent command string from config,
-// matching the logic in cmd/session.go:resolveAgentCmd.
-func resolveAgentCommand(cfg *config.Config, project string) string {
-	agent := cfg.ResolveAgent(project)
-	cmd := agent.Cmd
-	if cmd == "" {
-		cmd = semconv.DefaultAgentCmd
-	}
-	if len(agent.Args) > 0 {
-		cmd = cmd + " " + strings.Join(agent.Args, " ")
-	}
-	return cmd
-}
-
-func resolveAgentEnv(cfg *config.Config, project string) map[string]string {
-	agent := cfg.ResolveAgent(project)
-	env := make(map[string]string)
-	for k, v := range agent.Env {
-		env[k] = v
-	}
-	return env
-}
-
 // ── Attach (agent) ──────────────────────────────────────────────────────────
 
-func (m Model) attachAction() tea.Cmd {
+func (m Model) attachAction() (tea.Model, tea.Cmd) {
 	sel := m.selectedItem()
 	if sel == nil {
-		return nil
+		return m, nil
 	}
 
 	sesSvc := m.sesSvc
@@ -53,65 +27,119 @@ func (m Model) attachAction() tea.Cmd {
 	case groupAgent:
 		// Already has agent — just attach.
 		sessionName := semconv.SessionName(project, branch)
-		return func() tea.Msg { return attachMsg{session: sessionName} }
+		return m, func() tea.Msg { return attachMsg{session: sessionName} }
 
 	case groupWorktree:
-		// Has worktree but no agent — start agent then attach.
-		path := sel.Path
-		return func() tea.Msg {
-			sessionName := semconv.SessionName(project, branch)
-			agentCmd := resolveAgentCommand(cfg, project)
-			env := resolveAgentEnv(cfg, project)
-			err := sesSvc.Start(session.StartRequest{
-				Project: project,
-				Branch:  branch,
-				Path:    path,
-				Cmd:     agentCmd,
-				Env:     env,
-			})
-			if err != nil {
-				return errMsg{err: err}
-			}
-			return attachMsg{session: sessionName}
+		agents := cfg.AgentNames()
+		if len(agents) == 0 {
+			m.statusMsg = "no agents configured — add [agents.<name>] to config"
+			return m, nil
 		}
+
+		path := sel.Path
+		pending := &agentPickerPending{
+			project: project,
+			branch:  branch,
+			path:    path,
+			sesSvc:  sesSvc,
+		}
+
+		if len(agents) == 1 {
+			// Single agent — skip picker.
+			agent, _ := cfg.AgentByName(agents[0])
+			agentCmd := buildAgentCmd(agent)
+			return m, func() tea.Msg {
+				sessionName := semconv.SessionName(project, branch)
+				err := sesSvc.Start(session.StartRequest{
+					Project: project,
+					Branch:  branch,
+					Path:    path,
+					Cmd:     agentCmd,
+					Env:     agent.Env,
+				})
+				if err != nil {
+					return errMsg{err: err}
+				}
+				return attachMsg{session: sessionName}
+			}
+		}
+
+		// Multiple agents — show picker.
+		m.agentPicker = newAgentPicker(cfg, cfg.Defaults.Agent, pending)
+		m.screen = screenAgentPicker
+		return m, nil
 
 	case groupProject:
-		// No worktree — need branch. Use default branch.
-		return func() tea.Msg {
-			defaultBranch := "main"
-			if p, ok := cfg.Projects[project]; ok && p.DefaultBranch != "" {
-				defaultBranch = p.DefaultBranch
-			}
-
-			// Clone if needed.
-			if projSvc != nil {
-				_ = projSvc.Clone(project) // ignore AlreadyClonedError
-			}
-
-			// Create worktree.
-			result, err := wtSvc.New(project, defaultBranch)
-			if err != nil {
-				return errMsg{err: err}
-			}
-
-			// Start agent.
-			sessionName := semconv.SessionName(project, defaultBranch)
-			agentCmd := resolveAgentCommand(cfg, project)
-			env := resolveAgentEnv(cfg, project)
-			err = sesSvc.Start(session.StartRequest{
-				Project: project,
-				Branch:  defaultBranch,
-				Path:    result.Path,
-				Cmd:     agentCmd,
-				Env:     env,
-			})
-			if err != nil {
-				return errMsg{err: err}
-			}
-			return attachMsg{session: sessionName}
+		agents := cfg.AgentNames()
+		if len(agents) == 0 {
+			m.statusMsg = "no agents configured — add [agents.<name>] to config"
+			return m, nil
 		}
+
+		defaultBranch := "main"
+		if p, ok := cfg.Projects[project]; ok && p.DefaultBranch != "" {
+			defaultBranch = p.DefaultBranch
+		}
+
+		if len(agents) == 1 {
+			agent, _ := cfg.AgentByName(agents[0])
+			agentCmd := buildAgentCmd(agent)
+			return m, func() tea.Msg {
+				if projSvc != nil {
+					_ = projSvc.Clone(project)
+				}
+				result, err := wtSvc.New(project, defaultBranch)
+				if err != nil {
+					return errMsg{err: err}
+				}
+				sessionName := semconv.SessionName(project, defaultBranch)
+				err = sesSvc.Start(session.StartRequest{
+					Project: project,
+					Branch:  defaultBranch,
+					Path:    result.Path,
+					Cmd:     agentCmd,
+					Env:     agent.Env,
+				})
+				if err != nil {
+					return errMsg{err: err}
+				}
+				return attachMsg{session: sessionName}
+			}
+		}
+
+		// Multiple agents — show picker.
+		m.agentPicker = newAgentPicker(cfg, cfg.Defaults.Agent, &agentPickerPending{
+			project: project,
+			branch:  defaultBranch,
+			sesSvc:  sesSvc,
+			wtSvc:   wtSvc,
+			projSvc: projSvc,
+		})
+		m.screen = screenAgentPicker
+		return m, nil
 	}
-	return nil
+	return m, nil
+}
+
+// updateAgentPicker handles key events in the agent picker sub-screen.
+func (m Model) updateAgentPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if kp, ok := msg.(tea.KeyPressMsg); ok && (kp.String() == "esc" || kp.String() == "q") {
+		m.agentPicker = nil
+		m.screen = screenList
+		return m, nil
+	}
+	if m.agentPicker == nil {
+		m.screen = screenList
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.agentPicker, cmd = m.agentPicker.Update(msg)
+	if cmd != nil {
+		// Agent selected — transition back to list and run the command.
+		m.screen = screenList
+		m.agentPicker = nil
+	}
+	return m, cmd
 }
 
 // ── Shell ───────────────────────────────────────────────────────────────────

@@ -330,9 +330,11 @@ func TestAttachAction_nilSelection(t *testing.T) {
 	m := Model{screen: screenList}
 	m.list = newList(nil)
 
-	cmd := m.attachAction()
+	updated, cmd := m.attachAction()
+	um := updated.(Model)
+	_ = um
 	if cmd != nil {
-		t.Error("attachAction() with no selection should return nil")
+		t.Error("attachAction() with no selection should return nil cmd")
 	}
 }
 
@@ -345,7 +347,7 @@ func TestAttachAction_agentGroup(t *testing.T) {
 	m := Model{screen: screenList}
 	m.list = newList(listItems)
 
-	cmd := m.attachAction()
+	_, cmd := m.attachAction()
 	if cmd == nil {
 		t.Fatal("attachAction() on agent item should return non-nil cmd")
 	}
@@ -370,53 +372,8 @@ func TestShellAction_nilSelection(t *testing.T) {
 	}
 }
 
-func TestResolveAgentCommand_default(t *testing.T) {
-	cfg := &config.Config{}
-	cmd := resolveAgentCommand(cfg, "myapp")
-	if cmd == "" {
-		t.Error("resolveAgentCommand should return non-empty default command")
-	}
-	if !strings.Contains(cmd, semconv.DefaultAgentCmd) {
-		t.Errorf("resolveAgentCommand = %q, want to contain %q", cmd, semconv.DefaultAgentCmd)
-	}
-}
-
-func TestResolveAgentCommand_customCmd(t *testing.T) {
-	cfg := &config.Config{
-		Projects: map[string]config.ProjectConfig{
-			"myapp": {
-				Agent: config.AgentConfig{
-					Cmd: "my-agent",
-				},
-			},
-		},
-	}
-	cmd := resolveAgentCommand(cfg, "myapp")
-	if cmd != "my-agent" {
-		t.Errorf("resolveAgentCommand = %q, want %q", cmd, "my-agent")
-	}
-}
-
-func TestResolveAgentCommand_withArgs(t *testing.T) {
-	cfg := &config.Config{
-		Projects: map[string]config.ProjectConfig{
-			"myapp": {
-				Agent: config.AgentConfig{
-					Cmd:  "my-agent",
-					Args: []string{"--flag", "value"},
-				},
-			},
-		},
-	}
-	cmd := resolveAgentCommand(cfg, "myapp")
-	want := "my-agent --flag value"
-	if cmd != want {
-		t.Errorf("resolveAgentCommand = %q, want %q", cmd, want)
-	}
-}
-
-func TestAttachAction_worktreeGroup_returnsCmd(t *testing.T) {
-	cfg := &config.Config{}
+func TestAttachAction_worktreeGroup_noAgents_returnsError(t *testing.T) {
+	cfg := &config.Config{} // no agents defined
 	items := []Item{{Project: "myapp", Branch: "feat", Path: "/some/path", Group: groupWorktree}}
 	listItems := make([]list.Item, len(items))
 	for i, it := range items {
@@ -425,43 +382,180 @@ func TestAttachAction_worktreeGroup_returnsCmd(t *testing.T) {
 	m := Model{screen: screenList, cfg: cfg}
 	m.list = newList(listItems)
 
-	cmd := m.attachAction()
-	if cmd == nil {
-		t.Fatal("attachAction() on worktree item should return non-nil cmd")
-	}
-	// We don't call cmd() because sesSvc is nil and would panic.
-}
-
-func TestResolveAgentEnv_empty(t *testing.T) {
-	cfg := &config.Config{}
-	env := resolveAgentEnv(cfg, "myapp")
-	if env == nil {
-		t.Error("resolveAgentEnv should return non-nil map")
-	}
-	if len(env) != 0 {
-		t.Errorf("resolveAgentEnv returned %d entries, want 0 for empty config", len(env))
+	updated, _ := m.attachAction()
+	um := updated.(Model)
+	if um.statusMsg == "" {
+		t.Error("attachAction with no agents should set statusMsg")
 	}
 }
 
-func TestResolveAgentEnv_withEnv(t *testing.T) {
+func TestAttachAction_worktreeGroup_singleAgent_skipsPickerAndReturnCmd(t *testing.T) {
 	cfg := &config.Config{
-		Projects: map[string]config.ProjectConfig{
-			"myapp": {
-				Agent: config.AgentConfig{
-					Env: map[string]string{
-						"MY_VAR": "hello",
-						"OTHER":  "world",
-					},
-				},
-			},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
 		},
 	}
-	env := resolveAgentEnv(cfg, "myapp")
-	if env["MY_VAR"] != "hello" {
-		t.Errorf("MY_VAR = %q, want %q", env["MY_VAR"], "hello")
+	items := []Item{{Project: "myapp", Branch: "feat", Path: "/some/path", Group: groupWorktree}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
 	}
-	if env["OTHER"] != "world" {
-		t.Errorf("OTHER = %q, want %q", env["OTHER"], "world")
+	m := Model{screen: screenList, cfg: cfg}
+	m.list = newList(listItems)
+
+	updated, cmd := m.attachAction()
+	um := updated.(Model)
+	// Single agent — should skip picker and go straight to starting.
+	if um.screen == screenAgentPicker {
+		t.Error("single agent should skip picker screen")
+	}
+	if cmd == nil {
+		t.Fatal("attachAction with single agent should return non-nil cmd")
+	}
+}
+
+func TestAttachAction_worktreeGroup_multipleAgents_showsPicker(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+			"aider":  {Cmd: "aider"},
+		},
+	}
+	items := []Item{{Project: "myapp", Branch: "feat", Path: "/some/path", Group: groupWorktree}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
+	}
+	m := Model{screen: screenList, cfg: cfg}
+	m.list = newList(listItems)
+
+	updated, _ := m.attachAction()
+	um := updated.(Model)
+	if um.screen != screenAgentPicker {
+		t.Errorf("screen = %d, want %d (screenAgentPicker)", um.screen, screenAgentPicker)
+	}
+	if um.agentPicker == nil {
+		t.Fatal("agentPicker should be set")
+	}
+}
+
+func TestAttachAction_worktreeGroup_multipleAgents_defaultPreselected(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.DefaultsConfig{Agent: "aider"},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+			"aider":  {Cmd: "aider"},
+		},
+	}
+	items := []Item{{Project: "myapp", Branch: "feat", Path: "/some/path", Group: groupWorktree}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
+	}
+	m := Model{screen: screenList, cfg: cfg}
+	m.list = newList(listItems)
+
+	updated, _ := m.attachAction()
+	um := updated.(Model)
+	if um.agentPicker == nil {
+		t.Fatal("agentPicker should be set")
+	}
+	if um.agentPicker.selected() != "aider" {
+		t.Errorf("selected = %q, want aider (default)", um.agentPicker.selected())
+	}
+}
+
+func TestAttachAction_projectGroup_noAgents_returnsError(t *testing.T) {
+	cfg := &config.Config{} // no agents
+	items := []Item{{Project: "myapp", Branch: "", Group: groupProject}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
+	}
+	m := Model{screen: screenList, cfg: cfg}
+	m.list = newList(listItems)
+
+	updated, _ := m.attachAction()
+	um := updated.(Model)
+	if um.statusMsg == "" {
+		t.Error("attachAction on project with no agents should set statusMsg")
+	}
+}
+
+func TestAttachAction_projectGroup_singleAgent_skipsPickerAndReturnsCmd(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+	items := []Item{{Project: "myapp", Branch: "", Group: groupProject}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
+	}
+	m := Model{screen: screenList, cfg: cfg}
+	m.list = newList(listItems)
+
+	updated, cmd := m.attachAction()
+	um := updated.(Model)
+	if um.screen == screenAgentPicker {
+		t.Error("single agent on project should skip picker screen")
+	}
+	if cmd == nil {
+		t.Fatal("single agent on project should return non-nil cmd")
+	}
+}
+
+func TestAttachAction_projectGroup_multipleAgents_showsPicker(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+			"aider":  {Cmd: "aider"},
+		},
+	}
+	items := []Item{{Project: "myapp", Branch: "", Group: groupProject}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
+	}
+	m := Model{screen: screenList, cfg: cfg}
+	m.list = newList(listItems)
+
+	updated, _ := m.attachAction()
+	um := updated.(Model)
+	if um.screen != screenAgentPicker {
+		t.Errorf("multiple agents on project: screen = %d, want screenAgentPicker", um.screen)
+	}
+	if um.agentPicker == nil {
+		t.Fatal("agentPicker should be set")
+	}
+}
+
+func TestAttachAction_projectGroup_defaultBranch(t *testing.T) {
+	cfg := &config.Config{
+		Projects: map[string]config.ProjectConfig{
+			"myapp": {DefaultBranch: "develop"},
+		},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+			"aider":  {Cmd: "aider"},
+		},
+	}
+	items := []Item{{Project: "myapp", Branch: "", Group: groupProject}}
+	listItems := make([]list.Item, len(items))
+	for i, it := range items {
+		listItems[i] = it
+	}
+	m := Model{screen: screenList, cfg: cfg}
+	m.list = newList(listItems)
+
+	updated, _ := m.attachAction()
+	um := updated.(Model)
+	if um.agentPicker == nil {
+		t.Fatal("agentPicker should be set")
+	}
+	if um.agentPicker.pending.branch != "develop" {
+		t.Errorf("picker.pending.branch = %q, want develop", um.agentPicker.pending.branch)
 	}
 }
 
@@ -575,5 +669,173 @@ func TestConfirmView_shellOnly(t *testing.T) {
 	out := stripANSI(c.View())
 	if !strings.Contains(out, "Shell session") {
 		t.Errorf("View() should mention Shell session: %q", out)
+	}
+}
+
+// ── agentPickerModel tests ────────────────────────────────────────────────────
+
+func TestAgentPicker_selected_empty(t *testing.T) {
+	cfg := &config.Config{}
+	p := newAgentPicker(cfg, "", &agentPickerPending{})
+	if p.selected() != "" {
+		t.Errorf("selected() with no agents = %q, want empty", p.selected())
+	}
+}
+
+func TestAgentPicker_selected_default(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"aider":  {Cmd: "aider"},
+			"claude": {Cmd: "claude"},
+		},
+	}
+	p := newAgentPicker(cfg, "aider", &agentPickerPending{})
+	if p.selected() != "aider" {
+		t.Errorf("selected() = %q, want aider", p.selected())
+	}
+}
+
+func TestAgentPicker_Update_navigate(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"aider":  {Cmd: "aider"},
+			"claude": {Cmd: "claude"},
+		},
+	}
+	p := newAgentPicker(cfg, "aider", &agentPickerPending{})
+	if p.cursor != 0 {
+		t.Fatalf("initial cursor = %d, want 0", p.cursor)
+	}
+	// Move down — cursor should go from 0 to 1.
+	p.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	if p.cursor != 1 {
+		t.Errorf("after j: cursor = %d, want 1", p.cursor)
+	}
+	// Move up — cursor should return to 0.
+	p.Update(tea.KeyPressMsg(tea.Key{Code: 'k', Text: "k"}))
+	if p.cursor != 0 {
+		t.Errorf("after k: cursor = %d, want 0", p.cursor)
+	}
+}
+
+func TestAgentPicker_Update_nonKey(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+	p := newAgentPicker(cfg, "claude", &agentPickerPending{})
+	p2, cmd := p.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	if cmd != nil {
+		t.Error("non-key message should return nil cmd")
+	}
+	if p2.cursor != p.cursor {
+		t.Error("non-key message should not change cursor")
+	}
+}
+
+func TestAgentPicker_submit_agentNotFound(t *testing.T) {
+	cfg := &config.Config{}
+	p := newAgentPicker(cfg, "", &agentPickerPending{})
+	cmd := p.submit()
+	if cmd == nil {
+		t.Fatal("submit with no agents should return error cmd")
+	}
+	msg := cmd()
+	if _, ok := msg.(errMsg); !ok {
+		t.Errorf("submit() returned %T, want errMsg", msg)
+	}
+}
+
+func TestAgentPicker_View(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+			"aider":  {Cmd: "aider"},
+		},
+	}
+	p := newAgentPicker(cfg, "claude", &agentPickerPending{})
+	view := p.View()
+	if !strings.Contains(view, "Select Agent") {
+		t.Errorf("View() should contain 'Select Agent': %q", view)
+	}
+	if !strings.Contains(view, "claude") {
+		t.Errorf("View() should list claude agent: %q", view)
+	}
+	if !strings.Contains(view, "aider") {
+		t.Errorf("View() should list aider agent: %q", view)
+	}
+}
+
+// ── updateAgentPicker tests ───────────────────────────────────────────────────
+
+func TestUpdateAgentPicker_esc(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+	m := Model{screen: screenAgentPicker, cfg: cfg}
+	m.list = newList(nil)
+	m.agentPicker = newAgentPicker(cfg, "claude", &agentPickerPending{})
+
+	updated, cmd := m.updateAgentPicker(tea.KeyPressMsg(tea.Key{Code: 'q', Text: "q"}))
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("after esc, screen = %d, want %d (screenList)", um.screen, screenList)
+	}
+	if um.agentPicker != nil {
+		t.Error("agentPicker should be nil after esc")
+	}
+	if cmd != nil {
+		t.Error("esc should return nil cmd")
+	}
+}
+
+func TestUpdateAgentPicker_nilPicker(t *testing.T) {
+	m := Model{screen: screenAgentPicker}
+	m.list = newList(nil)
+	m.agentPicker = nil
+
+	updated, _ := m.updateAgentPicker(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("nil picker should transition to screenList, got %d", um.screen)
+	}
+}
+
+func TestUpdateAgentPicker_navigate(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"aider":  {Cmd: "aider"},
+			"claude": {Cmd: "claude"},
+		},
+	}
+	m := Model{screen: screenAgentPicker, cfg: cfg}
+	m.list = newList(nil)
+	m.agentPicker = newAgentPicker(cfg, "aider", &agentPickerPending{})
+
+	updated, cmd := m.updateAgentPicker(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
+	um := updated.(Model)
+	if um.screen != screenAgentPicker {
+		t.Errorf("navigation should stay on screenAgentPicker, got %d", um.screen)
+	}
+	if cmd != nil {
+		t.Error("navigation should return nil cmd")
+	}
+}
+
+func TestUpdateAgentPicker_View(t *testing.T) {
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+	m := Model{screen: screenAgentPicker, cfg: cfg}
+	m.list = newList(nil)
+	m.agentPicker = newAgentPicker(cfg, "claude", &agentPickerPending{})
+	v := m.View()
+	if !strings.Contains(v.Content, "Select Agent") {
+		t.Errorf("View() on screenAgentPicker should show agent picker: %q", v.Content)
 	}
 }

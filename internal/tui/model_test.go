@@ -372,7 +372,7 @@ func TestModel_noSelectionActions(t *testing.T) {
 	m.keys = defaultKeyMap()
 
 	// With no selection, action cmds should be nil.
-	if cmd := m.attachAction(); cmd != nil {
+	if _, cmd := m.attachAction(); cmd != nil {
 		t.Error("attachAction with no selection should return nil")
 	}
 	if cmd := m.shellAction(); cmd != nil {

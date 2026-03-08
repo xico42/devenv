@@ -6,8 +6,7 @@ import (
 )
 
 const (
-	SessionEnvVar   = "DEVENV_SESSION"
-	DefaultAgentCmd = "claude"
+	SessionEnvVar = "DEVENV_SESSION"
 
 	TmuxOptionStatus    = "@devenv_status"
 	TmuxOptionQuestion  = "@devenv_question"

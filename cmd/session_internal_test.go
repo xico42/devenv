@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/semconv"
 )
 
 // setTestConfig sets the package-level cfg for the duration of the test.
@@ -16,83 +14,59 @@ func setTestConfig(t *testing.T, c *config.Config) {
 	t.Cleanup(func() { cfg = orig })
 }
 
-func TestResolveAgentCmd_defaultWhenEmpty(t *testing.T) {
+func TestResolveAgentName_flagTakesPrecedence(t *testing.T) {
+	setTestConfig(t, &config.Config{
+		Defaults: config.DefaultsConfig{Agent: "default-agent"},
+		Agents: map[string]config.AgentConfig{
+			"default-agent": {Cmd: "default"},
+			"flag-agent":    {Cmd: "flag"},
+		},
+	})
+	name, err := resolveAgentName("flag-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "flag-agent" {
+		t.Errorf("resolveAgentName = %q, want flag-agent", name)
+	}
+}
+
+func TestResolveAgentName_fallsBackToDefault(t *testing.T) {
+	setTestConfig(t, &config.Config{
+		Defaults: config.DefaultsConfig{Agent: "my-default"},
+		Agents: map[string]config.AgentConfig{
+			"my-default": {Cmd: "claude"},
+		},
+	})
+	name, err := resolveAgentName("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "my-default" {
+		t.Errorf("resolveAgentName = %q, want my-default", name)
+	}
+}
+
+func TestResolveAgentName_errorWhenNoneSet(t *testing.T) {
 	setTestConfig(t, &config.Config{})
-	cmd := resolveAgentCmd("anyproject")
-	if cmd != semconv.DefaultAgentCmd {
-		t.Errorf("resolveAgentCmd with empty config = %q, want %q", cmd, semconv.DefaultAgentCmd)
+	_, err := resolveAgentName("")
+	if err == nil {
+		t.Error("resolveAgentName should error when no agent specified and no default")
 	}
 }
 
-func TestResolveAgentCmd_withCmdAndArgs(t *testing.T) {
-	setTestConfig(t, &config.Config{
-		Defaults: config.DefaultsConfig{
-			Agent: config.AgentConfig{
-				Cmd:  "echo",
-				Args: []string{"hello", "world"},
-			},
-		},
-	})
-	got := resolveAgentCmd("anyproject")
-	want := "echo hello world"
-	if got != want {
-		t.Errorf("resolveAgentCmd = %q, want %q", got, want)
-	}
-}
-
-func TestResolveAgentCmd_cmdOnlyNoArgs(t *testing.T) {
-	setTestConfig(t, &config.Config{
-		Defaults: config.DefaultsConfig{
-			Agent: config.AgentConfig{
-				Cmd: "myagent",
-			},
-		},
-	})
-	got := resolveAgentCmd("anyproject")
+func TestBuildAgentCmd_cmdOnly(t *testing.T) {
+	agent := config.AgentConfig{Cmd: "myagent"}
+	got := buildAgentCmd(agent)
 	if got != "myagent" {
-		t.Errorf("resolveAgentCmd = %q, want myagent", got)
+		t.Errorf("buildAgentCmd = %q, want myagent", got)
 	}
 }
 
-func TestResolveAgentEnv_empty(t *testing.T) {
-	setTestConfig(t, &config.Config{})
-	env := resolveAgentEnv("anyproject")
-	if len(env) != 0 {
-		t.Errorf("resolveAgentEnv with empty config = %v, want empty map", env)
-	}
-}
-
-func TestResolveAgentEnv_withVars(t *testing.T) {
-	setTestConfig(t, &config.Config{
-		Defaults: config.DefaultsConfig{
-			Agent: config.AgentConfig{
-				Env: map[string]string{
-					"FOO": "bar",
-					"BAZ": "qux",
-				},
-			},
-		},
-	})
-	env := resolveAgentEnv("anyproject")
-	if env["FOO"] != "bar" {
-		t.Errorf("env[FOO] = %q, want bar", env["FOO"])
-	}
-	if env["BAZ"] != "qux" {
-		t.Errorf("env[BAZ] = %q, want qux", env["BAZ"])
-	}
-}
-
-func TestResolveAgentCmd_noArgs_usesDefault(t *testing.T) {
-	setTestConfig(t, &config.Config{
-		Defaults: config.DefaultsConfig{
-			Agent: config.AgentConfig{
-				Cmd:  "",
-				Args: []string{},
-			},
-		},
-	})
-	got := resolveAgentCmd("anyproject")
-	if !strings.HasPrefix(got, semconv.DefaultAgentCmd) {
-		t.Errorf("resolveAgentCmd = %q, want prefix %q", got, semconv.DefaultAgentCmd)
+func TestBuildAgentCmd_cmdWithArgs(t *testing.T) {
+	agent := config.AgentConfig{Cmd: "echo", Args: []string{"hello", "world"}}
+	got := buildAgentCmd(agent)
+	if got != "echo hello world" {
+		t.Errorf("buildAgentCmd = %q, want %q", got, "echo hello world")
 	}
 }
