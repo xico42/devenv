@@ -62,6 +62,21 @@ func TestWorktreePath(t *testing.T) {
 	}
 }
 
+func TestShellSessionName(t *testing.T) {
+	tests := []struct {
+		project, branch, want string
+	}{
+		{"myapp", "feature", "myapp-feature~sh"},
+		{"myapp", "feature/login", "myapp-feature-login~sh"},
+		{"api", "fix/auth/token", "api-fix-auth-token~sh"},
+	}
+	for _, tt := range tests {
+		if got := semconv.ShellSessionName(tt.project, tt.branch); got != tt.want {
+			t.Errorf("ShellSessionName(%q, %q) = %q, want %q", tt.project, tt.branch, got, tt.want)
+		}
+	}
+}
+
 func TestConstants(t *testing.T) {
 	if semconv.SessionEnvVar != "DEVENV_SESSION" {
 		t.Errorf("SessionEnvVar = %q, want DEVENV_SESSION", semconv.SessionEnvVar)

@@ -1,0 +1,119 @@
+package tui
+
+import (
+	"sort"
+
+	"charm.land/bubbles/v2/list"
+
+	"github.com/xico42/devenv/internal/semconv"
+)
+
+// Item groups determine sort priority.
+const (
+	groupAgent    = 1 // worktrees with active agent sessions
+	groupWorktree = 2 // worktrees without agent sessions
+	groupProject  = 3 // projects without worktrees
+)
+
+// Item represents a single entry in the TUI list.
+type Item struct {
+	Project     string
+	Branch      string
+	Path        string
+	Group       int
+	HasAgent    bool
+	AgentStatus string // "running", "waiting", ""
+	Question    string
+	HasShell    bool
+	Cloned      bool
+}
+
+func (i Item) FilterValue() string {
+	if i.Branch != "" {
+		return i.Project + " / " + i.Branch
+	}
+	return i.Project
+}
+
+// refreshResult holds raw data collected during a refresh cycle.
+type refreshResult struct {
+	worktrees     []wtEntry
+	agentSessions map[string]agentInfo // keyed by session name (project-branch)
+	shellSessions map[string]bool      // keyed by shell session name (project-branch~sh)
+	projects      []projEntry
+}
+
+type wtEntry struct {
+	project string
+	branch  string
+	path    string
+}
+
+type agentInfo struct {
+	status   string
+	question string
+}
+
+type projEntry struct {
+	name   string
+	cloned bool
+}
+
+// buildItems transforms refresh data into a sorted slice of list items.
+func buildItems(data refreshResult) []list.Item {
+	// Track which projects have worktrees.
+	projectHasWorktree := make(map[string]bool)
+
+	var items []Item
+	for _, wt := range data.worktrees {
+		projectHasWorktree[wt.project] = true
+
+		sessionName := semconv.SessionName(wt.project, wt.branch)
+		shellName := semconv.ShellSessionName(wt.project, wt.branch)
+
+		item := Item{
+			Project:  wt.project,
+			Branch:   wt.branch,
+			Path:     wt.path,
+			HasShell: data.shellSessions[shellName],
+		}
+
+		if agent, ok := data.agentSessions[sessionName]; ok {
+			item.Group = groupAgent
+			item.HasAgent = true
+			item.AgentStatus = agent.status
+			item.Question = agent.question
+		} else {
+			item.Group = groupWorktree
+		}
+
+		items = append(items, item)
+	}
+
+	for _, p := range data.projects {
+		if projectHasWorktree[p.name] {
+			continue
+		}
+		items = append(items, Item{
+			Project: p.name,
+			Group:   groupProject,
+			Cloned:  p.cloned,
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Group != items[j].Group {
+			return items[i].Group < items[j].Group
+		}
+		if items[i].Project != items[j].Project {
+			return items[i].Project < items[j].Project
+		}
+		return items[i].Branch < items[j].Branch
+	})
+
+	result := make([]list.Item, len(items))
+	for i, item := range items {
+		result[i] = item
+	}
+	return result
+}

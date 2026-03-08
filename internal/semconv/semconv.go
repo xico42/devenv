@@ -18,6 +18,10 @@ func SessionName(project, branch string) string {
 	return project + "-" + FlattenBranch(branch)
 }
 
+func ShellSessionName(project, branch string) string {
+	return SessionName(project, branch) + "~sh"
+}
+
 func CloneDir(projectsDir, repoPath string) string {
 	return filepath.Join(projectsDir, repoPath)
 }

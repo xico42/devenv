@@ -179,6 +179,34 @@ func TestNewRealRunner(t *testing.T) {
 	}
 }
 
+// TestRealRunner_Run exercises the RealRunner using "tmux -V" which prints the version.
+func TestRealRunner_Run(t *testing.T) {
+	r := tmux.NewRealRunner()
+	stdout, _, exitCode, err := r.Run("-V")
+	if err != nil {
+		t.Fatalf("unexpected error running tmux -V: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("tmux -V exit code = %d, want 0", exitCode)
+	}
+	if stdout == "" {
+		t.Error("expected non-empty stdout from tmux -V")
+	}
+}
+
+// TestRealRunner_Run_nonZeroExit exercises the exit-code path by running
+// "tmux has-session -t __nonexistent__session__" which exits 1 when not found.
+func TestRealRunner_Run_nonZeroExit(t *testing.T) {
+	r := tmux.NewRealRunner()
+	_, _, exitCode, err := r.Run("has-session", "-t", "__nonexistent_devenv_test_session__")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode == 0 {
+		t.Error("expected non-zero exit code for nonexistent session")
+	}
+}
+
 func TestClient_NewSessionWithEnv_ok(t *testing.T) {
 	r := &mockRunner{exitCode: 0}
 	c := tmux.NewClient(r)

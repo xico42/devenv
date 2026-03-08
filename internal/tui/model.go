@@ -1,0 +1,357 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/devenv/internal/project"
+	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/devenv/internal/session"
+	"github.com/xico42/devenv/internal/state"
+	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/devenv/internal/worktree"
+)
+
+const (
+	screenList = iota
+	screenForm
+	screenConfirmDelete
+)
+
+const maxWidth = 80
+const refreshInterval = 3 * time.Second
+
+// Messages
+type tickMsg time.Time
+type itemsMsg []Item
+type errMsg struct{ err error }
+type attachMsg struct{ session string }
+type cloneDoneMsg struct{ project string }
+type worktreeCreatedMsg struct {
+	project string
+	branch  string
+	path    string
+}
+
+// Model is the top-level Bubble Tea model.
+type Model struct {
+	screen int
+	list   list.Model
+	keys   keyMap
+	help   help.Model
+
+	cfg         *config.Config
+	wtSvc       *worktree.Service
+	sesSvc      *session.Service
+	projSvc     *project.Service
+	tmuxClient  *tmux.Client
+	sessionsDir string
+
+	width  int
+	height int
+
+	// Set before quitting to trigger tmux attach.
+	PendingAttach string
+
+	// Delete confirmation state.
+	deleteTarget *Item
+
+	// Status message for async operations.
+	statusMsg string
+
+	// Form sub-model.
+	form *formModel
+}
+
+// NewModel creates the TUI model with all required services.
+func NewModel(
+	cfg *config.Config,
+	wtSvc *worktree.Service,
+	sesSvc *session.Service,
+	projSvc *project.Service,
+	tmuxClient *tmux.Client,
+	sessionsDir string,
+) Model {
+	keys := defaultKeyMap()
+	l := newList(nil)
+	h := help.New()
+
+	return Model{
+		screen:      screenList,
+		list:        l,
+		keys:        keys,
+		help:        h,
+		cfg:         cfg,
+		wtSvc:       wtSvc,
+		sesSvc:      sesSvc,
+		projSvc:     projSvc,
+		tmuxClient:  tmuxClient,
+		sessionsDir: sessionsDir,
+	}
+}
+
+func newList(items []list.Item) list.Model {
+	if items == nil {
+		items = []list.Item{}
+	}
+	l := list.New(items, newDelegate(), maxWidth, 20)
+	l.Title = "devenv"
+	l.SetShowStatusBar(true)
+	l.SetFilteringEnabled(true)
+	l.SetShowHelp(false)
+	return l
+}
+
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(m.refreshCmd(), tickCmd())
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		w := msg.Width
+		if w > maxWidth {
+			w = maxWidth
+		}
+		m.list.SetSize(w, msg.Height-4) // room for title + help
+		m.help.SetWidth(w)
+		return m, nil
+
+	case tickMsg:
+		return m, tea.Batch(m.refreshCmd(), tickCmd())
+
+	case itemsMsg:
+		items := make([]list.Item, len(msg))
+		for i, item := range msg {
+			items[i] = item
+		}
+		// Preserve selection.
+		var selProject, selBranch string
+		if sel, ok := m.list.SelectedItem().(Item); ok {
+			selProject = sel.Project
+			selBranch = sel.Branch
+		}
+		cmd := m.list.SetItems(items)
+		if selProject != "" {
+			for i, li := range items {
+				if it, ok := li.(Item); ok && it.Project == selProject && it.Branch == selBranch {
+					m.list.Select(i)
+					break
+				}
+			}
+		}
+		return m, cmd
+
+	case errMsg:
+		if msg.err != nil {
+			m.statusMsg = msg.err.Error()
+		}
+		return m, nil
+
+	case attachMsg:
+		m.PendingAttach = msg.session
+		return m, tea.Quit
+
+	case cloneDoneMsg:
+		m.statusMsg = fmt.Sprintf("Cloned %s", msg.project)
+		return m, m.refreshCmd()
+
+	case worktreeCreatedMsg:
+		m.statusMsg = fmt.Sprintf("Created %s/%s", msg.project, msg.branch)
+		return m, m.refreshCmd()
+	}
+
+	// Route to sub-screens.
+	switch m.screen {
+	case screenConfirmDelete:
+		return m.updateConfirmDelete(msg)
+	case screenForm:
+		return m.updateForm(msg)
+	default:
+		return m.updateList(msg)
+	}
+}
+
+func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		// Don't handle custom keys while filtering.
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			return m, tea.Quit
+
+		case key.Matches(msg, m.keys.Attach):
+			return m, m.attachAction()
+
+		case key.Matches(msg, m.keys.Shell):
+			return m, m.shellAction()
+
+		case key.Matches(msg, m.keys.Clone):
+			return m, m.cloneAction()
+
+		case key.Matches(msg, m.keys.New):
+			return m.showForm()
+
+		case key.Matches(msg, m.keys.Delete):
+			return m.startDelete()
+
+		case key.Matches(msg, m.keys.Refresh):
+			return m, m.refreshCmd()
+
+		case key.Matches(msg, m.keys.Help):
+			m.help.ShowAll = !m.help.ShowAll
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m Model) View() tea.View {
+	var content string
+	switch m.screen {
+	case screenForm:
+		content = m.form.View()
+	case screenConfirmDelete:
+		content = m.viewConfirmDelete()
+	default:
+		content = m.viewList()
+	}
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
+}
+
+func (m Model) viewList() string {
+	// Count agents for title bar.
+	agentCount := 0
+	for _, item := range m.list.Items() {
+		if it, ok := item.(Item); ok && it.HasAgent {
+			agentCount++
+		}
+	}
+
+	tb := titleStyle.Render("devenv")
+	if agentCount > 0 {
+		counter := dimStyle.Render(fmt.Sprintf("%d agents", agentCount))
+		pad := maxWidth - lipgloss.Width(tb) - lipgloss.Width(counter)
+		if pad < 1 {
+			pad = 1
+		}
+		tb = tb + fmt.Sprintf("%*s", pad, counter)
+	}
+
+	helpView := m.help.View(m.keys)
+
+	var status string
+	if m.statusMsg != "" {
+		status = "\n" + dimStyle.Render(m.statusMsg)
+	}
+
+	return fmt.Sprintf("%s\n\n%s%s\n\n%s", tb, m.list.View(), status, helpView)
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(refreshInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+// refreshCmd fetches all data from services asynchronously.
+func (m Model) refreshCmd() tea.Cmd {
+	wtSvc := m.wtSvc
+	tmuxClient := m.tmuxClient
+	sessionsDir := m.sessionsDir
+	cfg := m.cfg
+
+	return func() tea.Msg {
+		data := refreshResult{
+			agentSessions: make(map[string]agentInfo),
+			shellSessions: make(map[string]bool),
+		}
+
+		// 1. Worktrees
+		if wtSvc != nil {
+			entries, err := wtSvc.List("")
+			if err == nil {
+				for _, e := range entries {
+					data.worktrees = append(data.worktrees, wtEntry{
+						project: e.Project,
+						branch:  e.Branch,
+						path:    e.Path,
+					})
+				}
+			}
+		}
+
+		// 2. Session states (for agent status/question)
+		if sessionsDir != "" {
+			states, err := state.ListSessions(sessionsDir)
+			if err == nil {
+				for _, s := range states {
+					data.agentSessions[s.Session] = agentInfo{
+						status:   s.Status,
+						question: s.Question,
+					}
+				}
+			}
+		}
+
+		// 3. Tmux sessions (for shell session detection)
+		if tmuxClient != nil {
+			names, err := tmuxClient.ListSessions()
+			if err == nil {
+				for _, name := range names {
+					data.shellSessions[name] = true
+				}
+			}
+		}
+
+		// 4. Project list with clone status
+		if cfg != nil {
+			for name := range cfg.Projects {
+				p := cfg.Projects[name]
+				cloned := false
+				if rp, err := config.RepoPath(p.Repo); err == nil {
+					path := semconv.CloneDir(cfg.Defaults.ProjectsDir, rp)
+					if _, err := os.Stat(path); err == nil {
+						cloned = true
+					}
+				}
+				data.projects = append(data.projects, projEntry{name: name, cloned: cloned})
+			}
+		}
+
+		items := buildItems(data)
+		result := make([]Item, len(items))
+		for i, li := range items {
+			result[i] = li.(Item)
+		}
+		return itemsMsg(result)
+	}
+}
+
+// selectedItem returns the currently selected Item, or nil.
+func (m Model) selectedItem() *Item {
+	sel, ok := m.list.SelectedItem().(Item)
+	if !ok {
+		return nil
+	}
+	return &sel
+}

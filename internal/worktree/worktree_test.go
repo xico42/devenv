@@ -110,6 +110,15 @@ func (m *mockTmuxRunner) Run(args ...string) (string, string, int, error) {
 	return m.stdout, "", m.exitCode, nil
 }
 
+// mockTmuxRunnerWithError returns an error on Run.
+type mockTmuxRunnerWithError struct {
+	err error
+}
+
+func (m *mockTmuxRunnerWithError) Run(args ...string) (string, string, int, error) {
+	return "", "", -1, m.err
+}
+
 // makeService creates a Service backed by mocks with a temp projects dir.
 // Returns the Service and the temp dir.
 func makeService(t *testing.T, git WorktreeRunner, tmuxRunner tmux.Runner) (*Service, string) {
@@ -355,6 +364,66 @@ func TestService_New_unknownProject(t *testing.T) {
 	}
 }
 
+func TestService_Delete_tmuxError(t *testing.T) {
+	tmuxErr := fmt.Errorf("tmux not running")
+	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunnerWithError{err: tmuxErr})
+	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := svc.Delete(DeleteRequest{Project: "myapp", Branch: "feature"})
+	if err == nil {
+		t.Fatal("expected error from tmux HasSession")
+	}
+	if !strings.Contains(err.Error(), "checking tmux session") {
+		t.Errorf("expected 'checking tmux session' in error, got: %v", err)
+	}
+}
+
+func TestService_Delete_gitRemoveError(t *testing.T) {
+	removeErr := fmt.Errorf("git worktree remove failed")
+	git := &mockGit{removeErr: removeErr}
+	svc, tmpDir := makeService(t, git, &mockTmuxRunner{exitCode: 1}) // no session
+	worktreePath := cloneDirPath(tmpDir) + "__worktrees/feature"
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := svc.Delete(DeleteRequest{Project: "myapp", Branch: "feature"})
+	if err == nil {
+		t.Fatal("expected error from git Remove")
+	}
+	if !strings.Contains(err.Error(), "removing worktree") {
+		t.Errorf("expected 'removing worktree' in error, got: %v", err)
+	}
+}
+
+func TestService_Delete_unknownProject(t *testing.T) {
+	svc, _ := makeService(t, &mockGit{}, &mockTmuxRunner{})
+	err := svc.Delete(DeleteRequest{Project: "unknown", Branch: "feature"})
+	if err == nil {
+		t.Fatal("expected error for unknown project")
+	}
+}
+
+func TestService_resolvePaths_invalidRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Defaults: config.DefaultsConfig{ProjectsDir: tmpDir},
+		Projects: map[string]config.ProjectConfig{
+			"badrepo": {Repo: "not-a-valid-repo-url"},
+		},
+	}
+	tc := tmux.NewClient(&mockTmuxRunner{})
+	svc := NewService(cfg, &mockGit{}, tc)
+
+	_, err := svc.New("badrepo", "feature")
+	if err == nil {
+		t.Fatal("expected error for invalid repo URL")
+	}
+}
+
 // mockGitCreatesDir is a WorktreeRunner that creates the worktree directory on Add.
 type mockGitCreatesDir struct{ addErr error }
 
@@ -498,6 +567,14 @@ func TestService_Env_invalidTemplate(t *testing.T) {
 	_, err := svc.Env("myapp", "feature", false)
 	if err == nil {
 		t.Fatal("expected error for invalid template syntax")
+	}
+}
+
+func TestService_WorktreePath_unknownProject(t *testing.T) {
+	svc, _ := makeService(t, &mockGit{}, &mockTmuxRunner{})
+	_, err := svc.WorktreePath("unknown", "feature")
+	if err == nil {
+		t.Fatal("expected error for unknown project")
 	}
 }
 
