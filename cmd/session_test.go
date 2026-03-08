@@ -3,6 +3,7 @@ package cmd_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +89,21 @@ func TestSessionMarkRunning_withSession(t *testing.T) {
 	// mark-running with a non-existent session file should succeed silently
 	if err := runCmd(t, "--config", cfgPath, "session", "mark-running", "--session", "nonexistent"); err != nil {
 		t.Fatalf("mark-running with missing state file should succeed: %v", err)
+	}
+}
+
+// TestSessionStart_noCreateFlag_recognized verifies --no-create is a known flag.
+// Before the flag is wired, Cobra returns "unknown flag: --no-create".
+// After wiring, the command proceeds past flag parsing and fails on the
+// unconfigured project (non-sentinel error returned, not os.Exit(1)).
+func TestSessionStart_noCreateFlag_recognized(t *testing.T) {
+	cfgPath := writeSessionConfig(t, t.TempDir())
+	err := runCmd(t, "--config", cfgPath, "session", "start", "--no-create", "notaproject", "main")
+	if err == nil {
+		t.Fatal("expected error for unconfigured project, got nil")
+	}
+	if strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("--no-create flag not recognised: %v", err)
 	}
 }
 

@@ -58,6 +58,7 @@ var sessionCmd = &cobra.Command{
 // ── start ────────────────────────────────────────────────────────────────────
 
 var sessionStartAttach bool
+var sessionStartNoCreate bool
 
 var sessionStartCmd = &cobra.Command{
 	Use:   "start <project> <branch>",
@@ -69,7 +70,18 @@ var sessionStartCmd = &cobra.Command{
 		wtSvc := newWorktreeService()
 		path, err := wtSvc.WorktreePath(project, branch)
 		if err != nil {
-			return sessionErr(cmd, err)
+			if errors.Is(err, worktree.ErrWorktreeNotFound) && !sessionStartNoCreate {
+				fmt.Fprintf(cmd.OutOrStdout(), "Worktree %s/%s not found, creating...  ", project, branch)
+				result, createErr := wtSvc.New(project, branch)
+				if createErr != nil {
+					fmt.Fprintln(cmd.OutOrStdout())
+					return worktreeErr(cmd, project, branch, createErr)
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "done")
+				path = result.Path
+			} else {
+				return sessionErr(cmd, err)
+			}
 		}
 
 		name := semconv.SessionName(project, branch)
@@ -272,6 +284,7 @@ func sessionErr(cmd *cobra.Command, err error) error {
 
 func init() {
 	sessionStartCmd.Flags().BoolVar(&sessionStartAttach, "attach", false, "attach to the session after starting")
+	sessionStartCmd.Flags().BoolVar(&sessionStartNoCreate, "no-create", false, "fail if worktree does not exist instead of creating it")
 	sessionStopCmd.Flags().BoolVar(&sessionStopForce, "force", false, "skip confirmation prompt")
 	sessionMarkRunningCmd.Flags().StringVar(&markRunningSession, "session", "", "session name")
 
