@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-`devenv` is a personal Go CLI for spinning up and destroying ephemeral Digital Ocean droplets for remote dev work. Full context in `docs/project.md`.
+`devenv` is a personal Go CLI for managing parallel agentic coding sessions. It organizes projects and git worktrees, configures per-agent environments with deterministic port allocation, and orchestrates tmux sessions where AI coding agents run independently. Full context in `docs/project.md`.
 
 ## Build and development commands
 
@@ -21,7 +21,7 @@ make clean           # remove local binary
 Run a single package's tests:
 ```bash
 go test ./internal/config/...
-go test ./internal/do/...
+go test ./internal/session/...
 # etc.
 ```
 
@@ -48,54 +48,61 @@ This enforces a minimum of 80% aggregate test coverage across all packages. The 
 
 ## Architecture
 
-### Command planes
+### Command groups
 
-Commands are split into two planes:
+Commands are organized by function:
 
-- **Infrastructure** (`up`, `down`, `status`, `ssh`, `config`, `notify setup/test/status`) — runs on local machine, interacts with DO API
-- **Workload** (`project`, `worktree`, `session`, `notify send`) — runs anywhere (droplet or local), executes git/tmux/filesystem directly, no SSH
+- **Session management** (`session`, `tui`) — start, list, attach, stop agent sessions; interactive dashboard
+- **Project & worktree management** (`project`, `worktree`) — clone repos, manage git worktrees
+- **Configuration** (`config`) — manage projects, agents, and settings
+- **Remote execution** (`up`, `down`, `status`, `ssh`, `notify`) — planned; ephemeral DO droplets for remote sessions
 
-Workload commands have no awareness of whether they're on a droplet or a laptop. They operate on `projects_dir` (configurable, default `~/projects`) and local tmux.
+Session, project, and worktree commands run locally — they execute git/tmux/filesystem directly on whatever machine devenv is invoked. They operate on `projects_dir` (configurable, default `~/projects`) and local tmux.
 
 ### Package layout
 
 - **`main.go`** — entrypoint; delegates to `cmd.Execute()`; `version` var set via `-ldflags`
 - **`cmd/`** — Cobra commands; `root.go` wires `PersistentPreRunE` to load config; each command is a separate file
-- **`internal/config`** — TOML config at `~/.config/devenv/config.toml`; `Load()` returns defaults on missing file; `ApplyEnv()` overlays env vars; `ApplyFlags()` overlays CLI flags; includes `[projects]`, `[notify]`, `projects_dir`; `RepoPath()` derives filesystem paths from git URLs (e.g. `git@github.com:user/myapp.git` → `github.com/user/myapp`)
-- **`internal/state`** — JSON state at `~/.local/share/devenv/state.json`; tracks active droplet ID, Tailscale IP, etc.; `Load/Save/Clear` for droplet state; `LoadSession/SaveSession/ClearSession/ListSessions` for session state files at `~/.local/share/devenv/sessions/`
-- **`internal/do`** — thin wrapper around godo; `DropletsService` interface enables mocking in tests; `Client{Droplets: ...}` struct
-- **`internal/provision`** — renders cloud-init user-data via `embed.FS` + `text/template`; template at `internal/provision/templates/user-data.yaml.tmpl`
+- **`internal/config`** — TOML config at `~/.config/devenv/config.toml`; `Load()` returns defaults on missing file; `ApplyEnv()` overlays env vars; `ApplyFlags()` overlays CLI flags; includes `[projects]`, `[agents]`, `projects_dir`; `RepoPath()` derives filesystem paths from git URLs (e.g. `git@github.com:user/myapp.git` → `github.com/user/myapp`); `AgentByName()` / `AgentNames()` for named agent lookup
+- **`internal/session`** — tmux session lifecycle: start, stop, list, attach; session state via tmux user-defined options
+- **`internal/worktree`** — git worktree operations: new, delete, list, shell, env
+- **`internal/project`** — project clone and directory management
+- **`internal/tmux`** — typed tmux command wrapper (NewClient, Runner interface for testing)
+- **`internal/tui`** — Bubble Tea v2 dashboard with session/worktree/project views
 - **`internal/envtemplate`** — processes `.env.template` files with Go `text/template`; custom funcs: `port "name"` (deterministic FNV-1a hash), `env "VAR" "default"`; generates `.env` for worktrees
-
-Note: there is no `internal/remote` package. Workload commands execute locally.
+- **`internal/semconv`** — semantic conventions (session naming, path conventions)
+- **`internal/state`** — JSON state at `~/.local/share/devenv/state.json`; tracks active droplet (future remote phase)
+- **`internal/do`** — thin wrapper around godo; `DropletsService` interface (future remote phase)
+- **`internal/provision`** — renders cloud-init user-data via `embed.FS` + `text/template` (future remote phase)
 
 ### Config and state paths (XDG-compliant)
 
 | Purpose | Path |
 |---|---|
 | Config | `~/.config/devenv/config.toml` |
-| Droplet state | `~/.local/share/devenv/state.json` |
-| Session state | `~/.local/share/devenv/sessions/<name>.json` |
+| Droplet state (future) | `~/.local/share/devenv/state.json` |
 | Binary | `~/.local/bin/devenv` |
 
 ### Key design patterns
 
-- **Mocking**: `internal/do` exposes `DropletsService` interface so tests use a `mockDroplets` struct without real API calls
-- **Missing file = empty defaults**: both `config.Load()` and `state.Load()` return zero-value structs (not errors) when the file doesn't exist
-- **`syscall.Exec` for interactive commands**: `devenv ssh`, `devenv worktree shell`, `devenv session attach` replace the process rather than spawning a child
-- **Local execution**: workload commands run git/tmux via `os/exec` on the local machine — no SSH indirection
-- **Integration tests**: tagged with `//go:build integration` and run separately via `make test-integration`; require real DO credentials
+- **Named agents**: `[agents.<name>]` in config define cmd/args/env; selected via `--agent` flag or TUI picker; `AgentByName()` for lookup
+- **Session state in tmux**: session metadata stored as tmux user-defined options on sessions, not in state files
+- **Mocking**: `internal/do` exposes `DropletsService` interface; `internal/tmux` exposes `Runner` interface; `internal/worktree` exposes `WorktreeRunner` interface — tests use mock implementations
+- **Missing file = empty defaults**: `config.Load()` and `state.Load()` return zero-value structs (not errors) when the file doesn't exist
+- **`syscall.Exec` for interactive commands**: `devenv worktree shell`, `devenv session attach` replace the process rather than spawning a child
+- **Local execution**: all session/project/worktree commands run git/tmux via `os/exec` on the local machine — no SSH indirection
+- **Integration tests**: tagged with `//go:build integration` and run separately via `make test-integration`
 
-### Droplet provisioning
+### What's implemented
 
-Cloud-init template (`internal/provision/templates/user-data.yaml.tmpl`) installs: Docker, mise, Tailscale (auth via `TailscaleAuthKey`), mosh, tmux (with devenv-specific config, status bar, keybindings), devenv binary, Claude Code, and Claude Code hooks that call `devenv notify send` and `devenv session mark-running`.
+- All session management: start, list, attach, stop, show, with named agent support and automatic worktree creation
+- All project management: list, show, clone
+- All worktree management: list, new, delete, shell, env
+- Config management: init, show, set, get, profiles
+- TUI dashboard with session/worktree/project views
+- Env template processing with deterministic ports
 
-### Implementation phases
+### What's planned
 
-See `docs/project.md` for the full roadmap.
-
-- **Phase 0** (scaffold) — DONE
-- **Phase 1** (adapt scaffold) — sequential: remove `internal/remote`, extend config with `[projects]`, `[notify]`, `projects_dir`, add `RepoPath()` URL→path helper, add session state types
-- **Phase 2** (core commands) — ALL PARALLEL after Phase 1: infrastructure commands (`config`, `up`, `down`, `status`, `ssh`, `notify`), workload commands (`project`, `worktree`, `session`), env templates, and cloud-init template
-- **Phase 3** (composite) — `devenv setup` one-command start-to-work
-- **Phase 4** (optional) — remote Bubble Tea TUI
+- `devenv setup` — one-command project bootstrapping (clone + worktree + env + session)
+- Remote execution phase: `up`, `down`, `status`, `ssh` for ephemeral DO droplets

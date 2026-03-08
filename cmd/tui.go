@@ -13,9 +13,10 @@ import (
 )
 
 var tuiCmd = &cobra.Command{
-	Use:   "tui",
-	Short: "Interactive terminal dashboard",
-	Args:  cobra.NoArgs,
+	Use:     "tui",
+	Short:   "Interactive terminal dashboard",
+	GroupID: "sessions",
+	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tmuxRunner := tmux.NewRealRunner()
 		tmuxClient := tmux.NewClient(tmuxRunner)

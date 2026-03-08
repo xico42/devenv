@@ -7,8 +7,9 @@ import (
 )
 
 var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show the status of the active dev droplet",
+	Use:     "status",
+	Short:   "Show the status of the active dev droplet",
+	GroupID: "remote",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("not implemented")
 		return nil

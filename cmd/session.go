@@ -45,8 +45,9 @@ func buildAgentCmd(agent config.AgentConfig) string {
 }
 
 var sessionCmd = &cobra.Command{
-	Use:   "session",
-	Short: "Manage agent sessions",
+	Use:     "session",
+	Short:   "Manage agent sessions",
+	GroupID: "sessions",
 }
 
 // ── start ────────────────────────────────────────────────────────────────────

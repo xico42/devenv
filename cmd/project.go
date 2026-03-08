@@ -11,8 +11,9 @@ import (
 )
 
 var projectCmd = &cobra.Command{
-	Use:   "project",
-	Short: "Manage projects",
+	Use:     "project",
+	Short:   "Manage projects",
+	GroupID: "projects",
 }
 
 var projectListCmd = &cobra.Command{

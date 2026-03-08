@@ -30,8 +30,9 @@ func init() {
 }
 
 var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Manage devenv configuration",
+	Use:     "config",
+	Short:   "Manage devenv configuration",
+	GroupID: "config",
 }
 
 // ── show ─────────────────────────────────────────────────────────────────────

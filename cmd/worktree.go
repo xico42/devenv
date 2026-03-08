@@ -19,8 +19,9 @@ func newWorktreeService() *worktree.Service {
 }
 
 var worktreeCmd = &cobra.Command{
-	Use:   "worktree",
-	Short: "Manage git worktrees for configured projects",
+	Use:     "worktree",
+	Short:   "Manage git worktrees for configured projects",
+	GroupID: "projects",
 }
 
 // ── list ─────────────────────────────────────────────────────────────────────

@@ -7,8 +7,9 @@ import (
 )
 
 var downCmd = &cobra.Command{
-	Use:   "down",
-	Short: "Destroy the active dev droplet",
+	Use:     "down",
+	Short:   "Destroy the active dev droplet",
+	GroupID: "remote",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("not implemented")
 		return nil

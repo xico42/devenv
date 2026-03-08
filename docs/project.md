@@ -1,68 +1,22 @@
-# devenv — Remote Dev Environment CLI
+# devenv — Parallel Agentic Coding Session Manager
 
 ## Purpose
 
-`devenv` is a personal CLI tool for spinning up and destroying ephemeral cloud development environments on Digital Ocean. It is designed for developers who want to run Claude Code agents (or any heavy workloads) on a remote machine, accessible from any device — including mobile — without maintaining a persistent, always-on server.
+`devenv` is a personal CLI for managing parallel agentic coding sessions. It organizes projects and git worktrees, configures per-agent environments with deterministic port allocation, and orchestrates tmux sessions where AI coding agents run independently.
 
-The core principle: **pay only for what you use**. Start a droplet when you need it, work, then destroy it. Total cost for an active session is a few cents per hour.
+It is agent-agnostic: any CLI tool (Claude Code, Aider, Codex, or a custom script) can be a named agent with its own command, arguments, and environment variables. devenv manages the container around the agent — the tmux session, the worktree, the environment — not the agent itself.
+
+Each session is independent. A devenv session running Claude Code with Agent Teams, another running Aider, and a third running a plain shell can coexist. devenv does not care what runs inside; it cares about the infrastructure that makes parallel work possible.
 
 ---
 
 ## Inspiration
 
-This project is inspired by the following article:
+This project draws from the workflow described in:
 
 > **Claude Code On-The-Go** — https://granda.org/en/2026/01/02/claude-code-on-the-go/
 
-### Article summary
-
-The article describes running six Claude Code agents in parallel from an iOS device using an ephemeral Vultr cloud VM (~$0.29/hr). The full stack:
-
-| Layer | Tool | Purpose |
-|---|---|---|
-| Infrastructure | Vultr VM (vhf-8c-32gb) | Compute |
-| Security | Cloud firewall + nftables + fail2ban | Defense in depth; only Tailscale traffic allowed |
-| Networking | Tailscale | Private overlay network; no public SSH port |
-| Terminal | Termius (iOS) + Mosh | Resilient mobile SSH across network transitions |
-| Sessions | tmux (auto-attach via .zshrc) | Persistent sessions that survive disconnects |
-| Parallelism | Git worktrees | Independent branch checkouts for concurrent agents |
-| Ports | Deterministic hash-based allocation | Avoids port conflicts across parallel dev servers |
-| Notifications | Poke (iOS webhook service) | Push notifications when Claude needs input |
-| Trust | Claude Code permissive mode | Unattended operation on isolated, ephemeral VM |
-| Automation | Shell scripts + iOS Shortcut | `vm-start` waits for Tailscale then auto-connects via mosh; iOS Shortcut calls Vultr API and opens Termius in one tap |
-
-Key workflow: start VM from phone -> auto-connect -> kick off tasks in parallel worktrees -> pocket the phone -> get push notification when Claude needs input -> respond -> repeat. The VM is halted (not destroyed) between sessions.
-
-### How devenv maps to the article
-
-| Article feature | devenv equivalent | Status |
-|---|---|---|
-| VM start/stop | `devenv up` / `devenv down` | Planned (Phase 2) |
-| Tailscale networking | cloud-init provisions Tailscale | Planned (Phase 2) |
-| Mosh + SSH | `devenv ssh --mosh` | Planned (Phase 2) |
-| tmux auto-attach | tmux-native config via cloud-init | Planned (Phase 2) |
-| Push notifications | `devenv notify` (Telegram, Slack, Discord, webhook) | Planned (Phase 2) |
-| Git worktrees | `devenv worktree` (local execution) | Planned (Phase 2) |
-| Parallel Claude sessions | `devenv session` (local execution) | Planned (Phase 2) |
-| Deterministic port allocation | `.env.template` + `port "name"` (hash-based, no state) | Planned (Phase 2) |
-| Project cloning | `devenv project clone` (local execution) | Planned (Phase 2) |
-| Session management UI | tmux-native status bar + keybindings | Planned (Phase 2) |
-| Rich TUI dashboard | `devenv tui` (Bubble Tea v2, remote) | Planned (Phase 4, optional) |
-
-### Not yet handled or planned
-
-These features from the article are not currently in the devenv roadmap. They are documented here for future consideration.
-
-| Article feature | Gap | Notes |
-|---|---|---|
-| Halt/resume (not destroy) | `devenv down` destroys; no `stop`/`start` pair | DO supports power-off ($0.007/hr disk-only) — much faster than destroy + re-provision |
-| Composite start-to-work command | Requires multiple commands today: `up` -> `project clone` -> `worktree new` -> `session start` | Intentional: primitives first, composite `setup` command later (see Design philosophy) |
-| Firewall hardening | cloud-init installs Tailscale but no nftables/ufw/fail2ban | Defense in depth; Tailscale alone is not a firewall |
-| Claude Code permissive mode | cloud-init does not configure Claude's permission model | Required for unattended "pocket the phone" workflow |
-| ~~Deterministic port allocation~~ | `.env.template` processing with deterministic `port "name"` function | Planned (Phase 2) — see `prd-phase-02-env.md` |
-| Mobile shortcut integration | No URL scheme, HTTP API, or Tasker/Automate profile | One-tap "phone -> working" flow |
-| Session-aware reconnect | No "take me to the session that's waiting" quick-jump | Notifications say which session, but reconnecting is manual |
-| Cost guard / auto-shutdown | Cost shown in `status` and `down`, but no ceiling or idle detection | Financial safety net for forgotten droplets |
+The article runs six Claude Code agents in parallel on an ephemeral cloud VM, using git worktrees for isolation, tmux for session persistence, and deterministic port allocation to avoid conflicts. devenv takes the same foundational ideas — worktrees, tmux, deterministic ports — and builds a structured CLI around them, with project awareness, named agent configurations, and automatic environment setup.
 
 ---
 
@@ -70,87 +24,88 @@ These features from the article are not currently in the devenv roadmap. They ar
 
 ### Primitives first
 
-`devenv` is being built **primitives-first**. The core commands (`up`, `down`, `project`, `worktree`, `session`, `notify`) are independent, composable building blocks. Each is useful on its own and testable in isolation.
+`devenv` is built **primitives-first**. The core commands (`project`, `worktree`, `session`, `config`) are independent, composable building blocks. Each is useful on its own and testable in isolation.
 
-Higher-level automation (e.g., a single `devenv setup` command that provisions a droplet, clones projects, creates worktrees, and starts sessions in one shot) will be built **on top of** these primitives, not instead of them. This layering is intentional:
+Higher-level automation (e.g., a single `devenv setup` command that clones a project, creates a worktree, generates the environment, and starts a session) will be built **on top of** these primitives, not instead of them. This layering is intentional:
 
-1. **Primitives are stable** — the individual operations (create a droplet, clone a repo, create a worktree) are well-defined and unlikely to change.
+1. **Primitives are stable** — the individual operations (clone a repo, create a worktree, start a session) are well-defined and unlikely to change.
 2. **Composite commands are opinionated** — a "start everything" command embeds workflow assumptions that differ between use cases. Building it on stable primitives means the opinions live in one place.
 3. **Debuggability** — when something fails in a composite flow, the user can drop down to the primitive that failed and run it in isolation.
 
-### Commands run locally
+### Project-aware, not just worktree-aware
 
-Workload commands (`project`, `worktree`, `session`) execute git, tmux, and filesystem operations **directly on the machine where devenv is invoked**. They have no SSH logic and no awareness of whether they're running on a droplet or a laptop.
+Unlike tools that treat worktrees as the primary unit, devenv treats **projects** as the organizing concept. A project has a git repository URL, a default branch, and potentially many worktrees. Sessions are anchored to a project and branch — `myapp-feature`, not just `feature`. This means:
 
-- On the droplet (after `devenv ssh`): commands operate on the droplet's filesystem
-- On a local machine: commands operate on the local filesystem — useful for testing and local development
+- Worktrees from different projects never collide
+- The TUI can group sessions by project
+- Composite commands can operate on "all worktrees for project X"
 
-This eliminates the need for an `internal/remote` SSH package for workload commands. Infrastructure commands (`up`, `down`, `status`, `ssh`) remain local-machine-only and interact with the DO API.
+### Agent-agnostic with named configurations
 
-### tmux-native before TUI
+Agents are defined once in config and selected at session start:
 
-Session management uses tmux's built-in capabilities first:
-- Status bar showing all sessions and their state (running/waiting)
-- Custom keybindings for session switching, creation, and navigation
-- `choose-tree` for session picking
+```toml
+[agents.claude]
+cmd = "claude"
+args = ["--dangerously-skip-permissions"]
 
-A Bubble Tea TUI is a later optional phase that adds polish (forms, live-updating views, formatted output) but is not required for the workflow to function.
+[agents.aider]
+cmd = "aider"
+args = ["--model", "opus"]
+```
 
-### Use cases beyond mobile
+This decouples the session lifecycle from any specific agent. The same worktree can host a Claude session today and an Aider session tomorrow. Agent selection happens at runtime via `--agent` flag or TUI picker.
 
-The article targets mobile-first, phone-in-pocket async development. `devenv` targets that **and** a second use case: **offloading the local machine**.
+### Local-first, remote-capable
 
-When running heavy workloads (multiple Claude agents, Docker builds, test suites), the local machine becomes sluggish. Spinning up a beefy droplet and moving work there frees local resources entirely. This is not about mobility — it's about compute.
+All session management commands execute **directly on the machine where devenv is invoked** — git, tmux, and filesystem operations run locally with no SSH indirection.
 
-The two use cases have different workflows:
+This means devenv works on any machine: a laptop, a cloud VM, a remote server. The same commands, same config structure, same behavior everywhere.
 
-| Concern | Mobile (phone) | Offload (laptop/desktop) |
-|---|---|---|
-| Terminal | Termius + Mosh | Local terminal + SSH |
-| Connection | Intermittent, async | Persistent, synchronous |
-| Interaction | Respond to notifications | Actively monitor sessions |
-| Environment | Homogeneous (Claude agents) | Heterogeneous (Docker, Go, PHP, etc.) |
-| Composite flow | One-tap start -> auto-connect | Project-specific setup scripts |
-
-The heterogeneous environment case is important: different projects need different toolchains (Docker Compose for one, Go + mise for another, PHP + Composer for a third). A single monolithic provisioning step can't cover all of them. The primitives (`project`, `worktree`, `session`) let each project define its own setup while sharing the underlying infrastructure.
+Remote execution (spinning up ephemeral DO droplets and running sessions there) is a planned capability that extends this model. The session primitives stay the same; only the execution target changes.
 
 ---
 
 ## Goals
 
-1. **One command to start working** — `devenv up` creates a fully provisioned droplet in under 2 minutes.
-2. **One command to clean up** — `devenv down` destroys all resources with no orphaned costs.
-3. **Reproducible environments** — every droplet is provisioned identically via cloud-init, with no manual steps.
-4. **Mobile and desktop** — environments are accessible from Android via Termius + Mosh over Tailscale, and from any desktop terminal via SSH.
-5. **Composable primitives** — individual commands (`up`, `project`, `worktree`, `session`) work independently and compose into higher-level workflows.
-6. **Heterogeneous projects** — supports Docker-based, Go, PHP, and any other toolchain side by side, because provisioning provides the base and projects bring their own setup.
-7. **Docker + mise out of the box** — the two primary environment management tools are pre-installed and ready on every droplet.
-8. **Self-contained binary** — a single Go binary with no runtime dependencies.
+1. **Project-aware session management** — sessions are anchored to projects and branches, with structured directory layouts and clear naming.
+2. **Named agent configurations** — define agents once in config, select at session start. Each agent has its own command, arguments, and environment.
+3. **Deterministic environment setup** — `.env.template` processing with hash-based port allocation (`port "name"`) eliminates conflicts across parallel sessions.
+4. **Automatic project bootstrapping** — clone, create worktree, generate environment, start session — composable primitives that chain into one-step setup.
+5. **Agent-agnostic** — any CLI tool can be a named agent. devenv manages the session container, not the agent.
+6. **TUI for fleet overview** — visual dashboard showing all sessions, their status, and quick actions (attach, start, stop).
+7. **Self-contained binary** — a single Go binary with no runtime dependencies beyond git and tmux.
+8. **Remote execution (future)** — same interface on ephemeral DO droplets when local resources are insufficient.
 
 ---
 
 ## Non-Goals
 
+- Not a replacement for Agent Teams or subagents (complementary — a devenv session can run Agent Teams inside it)
 - Not a general-purpose infrastructure tool (use Terraform/Pulumi for that)
 - Not multi-user
 - Not a container orchestration tool
-- Not designed for long-running persistent environments
+- Not a mobile-first tool or push notification system
 
 ---
 
 ## Use Cases
 
-### Primary: Claude Code agent sessions (mobile)
-Start a droplet, SSH in from phone, run multiple Claude Code agents in parallel tmux sessions across git worktrees, pocket the phone, get notified when agents need input, respond, destroy when done.
+### Primary: Parallel agentic coding sessions
 
-### Primary: Offloading the local machine (desktop)
-Move heavy workloads (multiple Claude agents, Docker Compose stacks, test suites) to a beefy remote droplet so the local machine stays responsive. Work from a local terminal over SSH/Tailscale with persistent sessions. Heterogeneous projects (Go, PHP, Docker-based) coexist on the same droplet, each in its own worktree.
+Run multiple AI coding agents in parallel, each in its own tmux session with an isolated git worktree. Different agents (Claude, Aider, Codex) can run side by side. Switch between sessions via tmux or the TUI.
 
-### Secondary: Heavy build jobs
-Offload resource-intensive tasks (builds, tests, data processing) to a large droplet. Destroy after the job completes.
+### Primary: Multi-project development
+
+Work across multiple projects simultaneously. Each project has its own directory layout, worktrees, and sessions. The TUI groups everything by project for quick navigation.
+
+### Secondary: Offloading to remote compute (future)
+
+When local resources are insufficient for the number of parallel agents needed, spin up an ephemeral DO droplet and run the same sessions there. Same interface, same config, same workflow — just more compute.
 
 ### Secondary: Isolated experiments
-Spin up a clean environment to test something without polluting the local machine. Destroy after.
+
+Create a worktree for a throwaway branch, start an agent session, let it work, review the results, delete everything. The worktree isolation means experiments never touch the main checkout.
 
 ---
 
@@ -162,60 +117,43 @@ Spin up a clean environment to test something without polluting the local machin
 |---|---|
 | Language | Go 1.26 |
 | CLI framework | [Cobra](https://github.com/spf13/cobra) |
-| DO API client | [godo](https://github.com/digitalocean/godo) — Digital Ocean's official Go client |
-| TUI (optional, Phase 4) | [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) + [Lip Gloss](https://github.com/charmbracelet/lipgloss) |
-| Provisioning | cloud-init (user-data YAML) |
+| TUI | [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) + [Lip Gloss](https://github.com/charmbracelet/lipgloss) |
+| DO API client (future) | [godo](https://github.com/digitalocean/godo) — Digital Ocean's official Go client |
+| Provisioning (future) | cloud-init (user-data YAML) |
 | Config format | TOML |
 | Linter | golangci-lint |
 
-### Why godo over doctl?
-`doctl` is a CLI tool, not a library. Using `godo` directly means the entire binary is self-contained — no dependency on `doctl` being installed. `doctl` itself uses `godo` internally.
+### Command structure
 
-### Command planes
+| Command | Description | Status |
+|---|---|---|
+| `devenv config` | Manage configuration (init, show, set, get) | Done |
+| `devenv project` | Manage project clones (list, show, clone) | Done |
+| `devenv worktree` | Manage git worktrees (list, new, delete, shell, env) | Done |
+| `devenv session` | Manage tmux sessions (start, list, attach, stop, show) | Done |
+| `devenv tui` | Interactive dashboard | Done |
+| `devenv setup` | One-command project bootstrapping | Planned |
+| `devenv up` | Create remote droplet | Planned (remote phase) |
+| `devenv down` | Destroy remote droplet | Planned (remote phase) |
+| `devenv status` | Show remote droplet status | Planned (remote phase) |
+| `devenv ssh` | Connect to remote droplet | Planned (remote phase) |
 
-`devenv` commands are split into two planes:
+### tmux session architecture
 
-| Plane | Commands | Runs on | Needs |
-|---|---|---|---|
-| **Infrastructure** | `up`, `down`, `status`, `ssh`, `config`, `notify setup/test/status` | Local machine | DO API token, Tailscale |
-| **Workload** | `project`, `worktree`, `session`, `notify send` | Wherever devenv is invoked | git, tmux, filesystem |
-
-Workload commands execute locally — they run `git`, `tmux`, and filesystem operations directly. They don't SSH anywhere. On the droplet (after `devenv ssh`) they operate on the droplet's filesystem. On a laptop they operate on the laptop's filesystem. The command doesn't care where it runs.
-
-Infrastructure commands run on the local machine and interact with the DO API or SSH into the droplet for specific tasks (copying git keys, checking readiness).
-
-### Networking
-Droplets are accessed via **Tailscale** private network. No public IP is assigned or needed. This means:
-- No exposed SSH port
-- No fail2ban / firewall rules to manage
-- Access from any device on the Tailscale network
-
-Tailscale is installed and auto-authenticated during cloud-init provisioning using an **auth key**.
-
-### Session Persistence
-**Mosh** is installed on the droplet for resilient connections across network transitions (WiFi <-> cellular, device sleep). **tmux** provides persistent sessions with a custom status bar and keybindings for session management.
-
-### tmux session architecture (Layout A)
-
-Each Claude agent session runs in its own tmux session. A management session (`devenv`) is the landing point:
+Each agent session runs in its own tmux session. Shell sessions and the TUI also run as tmux sessions:
 
 ```
 tmux sessions:
-  devenv           <- landing session (status bar, management)
-  myapp-feature    <- Claude agent
-  api-experiment   <- Claude agent
-  myapp-fix-123    <- Claude agent
+  devenv           <- TUI / management session
+  myapp-feature    <- agent session (Claude Code)
+  myapp-fix-123    <- agent session (Aider)
+  api-experiment   <- agent session (Claude Code)
+  myapp-shell      <- permanent shell session
 ```
 
 Navigation uses tmux's built-in session switching:
 - `Ctrl+B s` — session picker (shows all sessions)
 - `Ctrl+B ( / )` — previous / next session
-- `Ctrl+B T` — custom binding: jump back to devenv management session
-
-The tmux status bar (visible in every session) shows all sessions and their state:
-```
-[devenv] myapp-feature:running | api-experiment:WAITING | myapp-fix:running    2h 15m
-```
 
 ---
 
@@ -224,28 +162,47 @@ The tmux status bar (visible in every session) shows all sessions and their stat
 | Purpose | Path |
 |---|---|
 | CLI config | `~/.config/devenv/config.toml` |
-| Active droplet state | `~/.local/share/devenv/state.json` |
-| Session state (on droplet) | `~/.local/share/devenv/sessions/<name>.json` |
+| Droplet state (future) | `~/.local/share/devenv/state.json` |
 | Binary | `~/.local/bin/devenv` |
 
-### `~/.config/devenv/config.toml` structure (overview)
+### `~/.config/devenv/config.toml` structure
+
 ```toml
 [defaults]
-token = "..."                    # DO API token (or via DIGITALOCEAN_TOKEN env var)
-ssh_key_id = "..."               # DO SSH key ID
-region = "nyc3"
-size = "s-2vcpu-4gb"
-tailscale_auth_key = "..."
 projects_dir = "~/projects"      # base directory for project clones and worktrees
+agent = "claude"                 # default agent for new sessions
 
-[profiles.heavy]
-size = "s-8vcpu-16gb"
-region = "sfo3"
+[agents.claude]
+cmd = "claude"
+args = ["--dangerously-skip-permissions"]
+
+[agents.claude.env]
+CLAUDE_CONFIG_DIR = "/custom"
+
+[agents.aider]
+cmd = "aider"
+args = ["--model", "opus"]
 
 [projects.myapp]
 repo = "git@github.com:user/myapp.git"
 default_branch = "main"
 # cloned to: ~/projects/github.com/user/myapp/
+
+[projects.api]
+repo = "git@github.com:user/api.git"
+default_branch = "develop"
+
+# Future: remote execution config
+# [defaults]
+# token = "..."                  # DO API token
+# ssh_key_id = "..."             # DO SSH key ID
+# region = "nyc3"
+# size = "s-2vcpu-4gb"
+# tailscale_auth_key = "..."
+#
+# [profiles.heavy]
+# size = "s-8vcpu-16gb"
+# region = "sfo3"
 ```
 
 ### Project directory layout
@@ -269,163 +226,6 @@ Clone paths mirror the repo URL structure under `projects_dir` (like `ghq` / Go 
           develop/                 <- worktree
 ```
 
-### `~/.local/share/devenv/state.json` structure (overview)
-```json
-{
-  "droplet_id": 123456789,
-  "droplet_name": "devenv-20260304-143012",
-  "tailscale_ip": "100.x.y.z",
-  "public_ip": "...",
-  "region": "nyc3",
-  "size": "s-2vcpu-4gb",
-  "profile": "default",
-  "created_at": "2026-03-04T14:30:12Z",
-  "status": "active"
-}
-```
-
----
-
-## Droplet Provisioning (cloud-init)
-
-Every droplet is provisioned with:
-
-- **OS**: Ubuntu 24.04 LTS
-- **Docker**: installed and configured for non-root user (`ubuntu`)
-- **mise**: installed globally, available to all users
-- **Tailscale**: installed and authenticated via auth key
-- **mosh**: installed
-- **tmux**: installed with devenv-specific config (status bar, keybindings, Layout A sessions)
-- **devenv binary**: installed to `/usr/local/bin/devenv` (same binary, for workload commands and hooks)
-- **devenv config**: notification provider credentials copied from local config
-- **Claude Code**: installed via npm (`@anthropic-ai/claude-code`)
-- **Claude Code hooks**: `~/.claude/settings.json` bootstrapped with hooks that call `devenv notify send` and `devenv session mark-running`
-
-The provisioning is entirely declarative — a YAML template rendered at `devenv up` time and passed as user-data to the droplet.
-
----
-
-## Development Roadmap
-
-### Dependency overview
-
-```
-[Phase 0: Scaffold] .............. DONE
-       |
-       v
-[Phase 1: Adapt scaffold] ........ sequential (removes internal/remote, adds projects_dir)
-       |
-       v
-[Phase 2: Core commands] ......... ALL PARALLEL after Phase 1
-       |
-       |--- Infrastructure plane (local machine):
-       |      config, up, down, status, ssh, notify
-       |
-       |--- Workload plane (runs anywhere):
-       |      project, worktree, session
-       |
-       |--- Provisioning:
-       |      cloud-init template (tmux-native config, devenv binary, hooks)
-       |
-       v
-[Phase 3: Composite + skill] ..... after Phase 2
-       |      devenv setup (one-command start-to-work)
-       |      using-devenv agent skill (embed.FS + devenv skill install)
-       |
-       v
-[Phase 4: Remote TUI] ............ optional, after Phase 3
-              Bubble Tea v2 dashboard running on the droplet
-```
-
-**Key insight: ALL Phase 2 commands are independent and can be implemented in parallel.** Infrastructure commands and workload commands have no dependencies on each other. The only prerequisite is Phase 1 (scaffold adaptation).
-
----
-
-### Phase 0 — Scaffold (DONE)
-
-Internal packages built in order:
-
-1. [X] `go.mod` init + dependencies
-2. [X] `internal/config` — TOML loading, env var overrides, profile resolution
-3. [X] `internal/state` — JSON state read/write, `Clear()`
-4. [X] `internal/do` — godo client + `DropletsService` interface
-5. [X] `internal/provision` — cloud-init template rendering
-6. [X] `cmd/root.go` — cobra root, persistent flags, config load on `PersistentPreRunE`
-7. [X] Command stubs + Makefile + `.golangci.yml`
-
-See `docs/prds/prd-phase-00-scaffolding.md`.
-
----
-
-### Phase 1 — Adapt scaffold (sequential, blocks Phase 2)
-
-Adapt the Phase 0 scaffold to reflect the local-execution architecture. See `docs/prds/prd-phase-01-adapt-scaffold.md`.
-
-- [ ] Remove `internal/remote` package (SSH execution for workload commands is eliminated)
-- [ ] Remove `golang.org/x/crypto` dependency (no longer needed without `internal/remote`)
-- [ ] Add `projects_dir` to config (`DefaultsConfig.ProjectsDir`, default: `~/projects`)
-- [ ] Add `[projects]` section to config (map of project name -> repo + default_branch)
-- [ ] Add `[notify]` section to config (provider + provider-specific settings)
-- [ ] Add session state types to `internal/state` (session state files at `~/.local/share/devenv/sessions/`)
-- [ ] Verify `make test`, `make lint`, `make coverage` still pass
-
----
-
-### Phase 2 — Core commands (ALL PARALLEL after Phase 1)
-
-Every command in this phase depends only on `internal/` packages from Phase 0+1. **None depend on each other.** They can all be implemented in parallel by independent agents or in any order.
-
-#### Infrastructure plane (runs on local machine)
-
-- [ ] `devenv config` — `internal/config` only (see `docs/prds/prd-phase-02-cmd-config.md`)
-- [ ] `devenv up` — `internal/config` + `state` + `do` + `provision` (see `docs/prds/prd-phase-02-cmd-up.md`)
-- [ ] `devenv down` — `internal/config` + `state` + `do` (see `docs/prds/prd-phase-02-cmd-down.md`)
-- [ ] `devenv status` — `internal/config` + `state` + `do` (see `docs/prds/prd-phase-02-cmd-status.md`)
-- [ ] `devenv ssh` — `internal/config` + `state` only; `syscall.Exec` pattern (see `docs/prds/prd-phase-02-cmd-ssh.md`)
-- [ ] `devenv notify` (setup / test / status / send) — `internal/config` + HTTP client (see `docs/prds/prd-phase-02-cmd-notify.md`)
-
-#### Workload plane (runs anywhere — no SSH, no droplet required)
-
-- [ ] `devenv project` — `internal/config` + git + filesystem (see `docs/prds/prd-phase-02-cmd-project.md`)
-- [ ] `devenv worktree` — `internal/config` + git + filesystem (see `docs/prds/prd-phase-02-cmd-worktree.md`)
-- [ ] `devenv session` — `internal/config` + `internal/state` + tmux + filesystem (see `docs/prds/prd-phase-02-cmd-session.md`)
-- [ ] env templates — `internal/envtemplate` + `text/template` (see `docs/prds/prd-phase-02-env.md`)
-
-#### Provisioning
-
-- [ ] cloud-init template — tmux-native config, devenv binary, Claude Code hooks (see `docs/prds/prd-phase-02-cloud-init.md`)
-
----
-
-### Phase 3 — Composite commands & agent skill (after Phase 2)
-
-- [ ] `devenv setup` — one-command start-to-work: `up` + `project clone --all` + worktree creation + session start
-- [ ] `using-devenv` agent skill — reference skill teaching Claude Code agents how to use devenv; embedded in binary via `devenv skill install` (see `docs/prds/prd-phase-03-agent-skill.md`)
-
----
-
-### Phase 4 — Remote TUI (optional, after Phase 3)
-
-Bubble Tea v2 dashboard running **on the droplet** in its own tmux session (Layout A). Replaces the tmux-native management experience with a richer interface.
-
-- [ ] Interactive Bubble Tea v2 dashboard (see `docs/prds/prd-phase-04-tui.md`)
-
-The TUI is a **workload-plane** tool — it manages sessions, worktrees, and projects. It does not manage droplet lifecycle (that stays in the CLI on the local machine).
-
----
-
-### Future — Quality of life (not yet planned)
-
-- `devenv stop` / `devenv start` — halt/resume droplet without destroying
-- `devenv snapshot` — save/restore droplet snapshots
-- Multi-environment support (`devenv list`, named environments)
-- Cost guard / auto-shutdown
-- Firewall hardening in cloud-init
-- Claude Code permissive mode configuration
-- Mobile shortcut integration (Tasker/Automate)
-- Session-aware reconnect (notification deep-links to waiting session)
-- Bidirectional chat bot (Telegram bot for management commands)
-
 ---
 
 ## Package Layout
@@ -439,32 +239,77 @@ devenv/
 │
 ├── cmd/
 │   ├── root.go          — cobra root, persistent flags, config load
-│   ├── up.go            — infrastructure: create droplet
-│   ├── down.go          — infrastructure: destroy droplet
-│   ├── status.go        — infrastructure: show droplet status
-│   ├── ssh.go           — infrastructure: connect to droplet
-│   ├── config.go        — infrastructure: manage config
-│   ├── notify.go        — both planes: setup (local), send (anywhere)
-│   ├── project.go       — workload: manage project clones
-│   ├── worktree.go      — workload: manage git worktrees
-│   └── session.go       — workload: manage tmux sessions
+│   ├── config.go        — manage config
+│   ├── project.go       — manage project clones
+│   ├── worktree.go      — manage git worktrees
+│   ├── session.go       — manage tmux sessions
+│   ├── tui.go           — interactive dashboard
+│   ├── up.go            — (future) create remote droplet
+│   ├── down.go          — (future) destroy remote droplet
+│   ├── status.go        — (future) show remote droplet status
+│   ├── ssh.go           — (future) connect to remote droplet
+│   └── notify.go        — (future) notification management
 │
 ├── internal/
-│   ├── config/          — TOML config: defaults, profiles, projects, notify; RepoPath() URL→path derivation
-│   ├── state/           — JSON state: droplet state + session state files
-│   ├── do/              — godo wrapper: DropletsService interface
+│   ├── config/          — TOML config: defaults, agents, projects; RepoPath() URL→path derivation
+│   ├── session/         — tmux session lifecycle: start, stop, list, attach
+│   ├── worktree/        — git worktree operations: new, delete, list
+│   ├── project/         — project clone and directory management
+│   ├── tmux/            — typed tmux command wrapper
+│   ├── tui/             — Bubble Tea v2 dashboard
 │   ├── envtemplate/     — .env.template processing: deterministic ports, env var interpolation
-│   └── provision/       — cloud-init template rendering
+│   ├── semconv/         — semantic conventions (session naming, path conventions)
+│   ├── state/           — JSON state (droplet state for future remote phase)
+│   ├── do/              — godo wrapper (future remote phase)
+│   └── provision/       — cloud-init template rendering (future remote phase)
 │       └── templates/
 │           └── user-data.yaml.tmpl
 │
 └── docs/
     ├── project.md
+    ├── landscape.md
     └── prds/
         └── *.md
 ```
 
-Note: `internal/remote` has been removed. Workload commands execute locally.
+---
+
+## Development Roadmap
+
+### What's done
+
+- [x] Internal packages: config, project, worktree, session, tmux, envtemplate, tui, semconv
+- [x] `devenv config` — init, show, set, get
+- [x] `devenv project` — list, show, clone
+- [x] `devenv worktree` — list, new, delete, shell, env
+- [x] `devenv session` — start, list, attach, stop, show, with named agent support
+- [x] `devenv tui` — Bubble Tea v2 dashboard with session/worktree/project views
+- [x] Named agent configurations (`[agents.<name>]`)
+- [x] Session state via tmux user-defined options (no file-based state)
+- [x] Automatic worktree creation on session start
+
+### Next
+
+- [ ] `devenv setup` — one-command project bootstrapping: clone + worktree + env + session
+- [ ] `.env.template` integration into session start (auto-generate `.env` from template before launching agent)
+- [ ] `using-devenv` agent skill — reference skill teaching Claude Code agents how to use devenv (see `docs/prds/prd-phase-04-agent-skill.md`)
+
+### Future: Remote execution
+
+- [ ] `devenv up` — create ephemeral DO droplet via cloud-init
+- [ ] `devenv down` — destroy droplet and clean up
+- [ ] `devenv status` — show droplet status and cost
+- [ ] `devenv ssh` — connect to droplet (SSH or Mosh)
+- [ ] Remote session management — start/stop/attach sessions on a remote host
+- [ ] Cloud-init provisioning (Docker, mise, Tailscale, tmux, devenv binary, agent tools)
+- [ ] `devenv stop` / `devenv start` — halt/resume droplet without destroying
+
+### Future: Quality of life
+
+- [ ] `devenv snapshot` — save/restore droplet snapshots
+- [ ] Multi-environment support (`devenv list`, named environments)
+- [ ] Cost guard / auto-shutdown for remote droplets
+- [ ] Desktop notifications when a session needs attention
 
 ---
 
@@ -472,21 +317,22 @@ Note: `internal/remote` has been removed. Workload commands execute locally.
 
 When starting a new agent session to continue development on this project, provide this file as context. Key decisions already made:
 
-1. **Digital Ocean** as the cloud provider (not Vultr, AWS, etc.)
-2. **godo** for DO API access (not doctl CLI, not Pulumi)
-3. **Go + Cobra** for the CLI
-4. **cloud-init** for droplet provisioning (not Ansible, not remote scripts)
-5. **Tailscale** for networking (no public SSH port)
-6. **Bubble Tea v2** for the optional TUI (not v1) — Phase 4 only
-7. **XDG-compliant** file locations (config in `~/.config`, state in `~/.local/share`)
-8. **SSH key in use**: `AbishaiV2` (DO key ID: `52790602`)
-9. **Go version**: 1.26 (managed via mise)
-10. **Binary install location**: `~/.local/bin/devenv`
-11. **Workload commands run locally** — no `internal/remote`, no SSH indirection for project/worktree/session
-12. **tmux-native session management** — status bar + keybindings before any TUI
-13. **Layout A** — each Claude session in its own tmux session, management in `devenv` session
-14. **projects_dir is configurable** — default `~/projects`
-15. **Clone paths mirror repo URL** — `~/projects/github.com/user/myapp/` (like `ghq` / Go modules), set via config
+1. **Go + Cobra** for the CLI
+2. **Bubble Tea v2** for the TUI (not v1)
+3. **XDG-compliant** file locations (config in `~/.config`, state in `~/.local/share`)
+4. **Go version**: 1.26 (managed via mise)
+5. **Binary install location**: `~/.local/bin/devenv`
+6. **All session commands run locally** — no SSH indirection for project/worktree/session
+7. **Each agent session = one tmux session** — management in `devenv` session
+8. **projects_dir is configurable** — default `~/projects`
+9. **Clone paths mirror repo URL** — `~/projects/github.com/user/myapp/` (like `ghq` / Go modules)
+10. **Named agents** — `[agents.<name>]` in config, selected via `--agent` flag or TUI picker
+11. **Session state stored in tmux** — user-defined options on tmux sessions, no state files
+12. **Agent-agnostic** — devenv manages the session container, agents are pluggable
+13. **Digital Ocean** as the cloud provider for the remote execution phase
+14. **godo** for DO API access (not doctl CLI)
+15. **cloud-init** for droplet provisioning (not Ansible, not remote scripts)
+16. **Tailscale** for remote networking (no public SSH port)
 
 ---
 
@@ -497,3 +343,6 @@ Ideas and features that came up during development but were intentionally deferr
 | Idea | Context | Notes |
 |---|---|---|
 | `devenv config project add <name>` wizard | Came up during `config` command design | Interactive prompts for repo URL + default branch; alternative to `config set projects.<name>.repo ...` + `config set projects.<name>.default_branch ...`; no API calls needed |
+| Session groups / batch operations | Natural extension of project-awareness | Start/stop all sessions for a project; "refresh all worktrees" |
+| Agent health monitoring | TUI enhancement | Detect stuck agents, auto-restart, resource usage alerts |
+| Template-based project setup | Extension of `.env.template` | Per-project setup scripts that run after worktree creation (install deps, build, etc.) |

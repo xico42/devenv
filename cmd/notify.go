@@ -7,8 +7,9 @@ import (
 )
 
 var notifyCmd = &cobra.Command{
-	Use:   "notify",
-	Short: "Send notifications about session activity",
+	Use:     "notify",
+	Short:   "Send notifications about session activity",
+	GroupID: "remote",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("not implemented")
 		return nil
