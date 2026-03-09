@@ -101,6 +101,26 @@ cmd = "claude"
 	}
 }
 
+func TestAgentConfig_Command(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.AgentConfig
+		want string
+	}{
+		{"cmd only", config.AgentConfig{Cmd: "claude"}, "claude"},
+		{"cmd with args", config.AgentConfig{Cmd: "claude", Args: []string{"--model", "opus"}}, "claude --model opus"},
+		{"empty", config.AgentConfig{}, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.cfg.Command()
+			if got != tc.want {
+				t.Errorf("Command() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAgentNames_empty(t *testing.T) {
 	cfg, err := config.Load(filepath.Join(t.TempDir(), "config.toml"))
 	if err != nil {

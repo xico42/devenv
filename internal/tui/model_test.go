@@ -179,7 +179,7 @@ func TestModel_View_confirmDelete(t *testing.T) {
 func TestModel_View_form(t *testing.T) {
 	m := Model{screen: screenForm}
 	m.list = newList(nil)
-	m.form = &formModel{}
+	m.form = newFormModel(formContext{project: "myapp", baseBranch: "main"}, &config.Config{}, nil, nil)
 
 	v := m.View()
 	_ = v
@@ -329,7 +329,7 @@ func TestModel_screenConfirmDelete_update(t *testing.T) {
 func TestModel_screenForm_update(t *testing.T) {
 	m := Model{screen: screenForm}
 	m.list = newList(nil)
-	m.form = newFormModel([]string{"myapp"}, nil, nil)
+	m.form = newFormModel(formContext{project: "myapp", baseBranch: "main"}, &config.Config{}, nil, nil)
 
 	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{}))
 	um := updated.(Model)

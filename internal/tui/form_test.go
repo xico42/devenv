@@ -2,9 +2,9 @@ package tui
 
 import (
 	"regexp"
-	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/xico42/devenv/internal/config"
@@ -16,143 +16,106 @@ func stripANSI(s string) string {
 	return ansiEscapeRe.ReplaceAllString(s, "")
 }
 
-func TestFormModel_cycleProject(t *testing.T) {
-	projects := []string{"api", "frontend", "myapp"}
-	f := newFormModel(projects, nil, nil)
-
-	if f.selectedProject() != "api" {
-		t.Errorf("initial project = %q, want %q", f.selectedProject(), "api")
+func TestNewFormModel_setsContextFields(t *testing.T) {
+	ctx := formContext{project: "myapp", baseBranch: "main"}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
 	}
 
-	f.nextProject()
-	if f.selectedProject() != "frontend" {
-		t.Errorf("after next: project = %q, want %q", f.selectedProject(), "frontend")
+	f := newFormModel(ctx, cfg, nil, nil)
+
+	if f.project != "myapp" {
+		t.Errorf("project = %q, want %q", f.project, "myapp")
 	}
-
-	f.nextProject()
-	f.nextProject() // wraps around
-	if f.selectedProject() != "api" {
-		t.Errorf("after wrap: project = %q, want %q", f.selectedProject(), "api")
+	if f.baseBranch != "main" {
+		t.Errorf("baseBranch = %q, want %q", f.baseBranch, "main")
 	}
-}
-
-func TestFormModel_prevProject(t *testing.T) {
-	projects := []string{"api", "frontend", "myapp"}
-	f := newFormModel(projects, nil, nil)
-
-	f.prevProject()
-	if f.selectedProject() != "myapp" {
-		t.Errorf("after prev from start: project = %q, want %q", f.selectedProject(), "myapp")
+	if !f.attach {
+		t.Error("attach should default to true")
 	}
 }
 
-func TestFormModel_emptyProjects(t *testing.T) {
-	f := newFormModel(nil, nil, nil)
-
-	if f.selectedProject() != "" {
-		t.Errorf("selectedProject() with no projects = %q, want empty", f.selectedProject())
+func TestNewFormModel_singleAgent(t *testing.T) {
+	ctx := formContext{project: "myapp", baseBranch: "main"}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
 	}
-	// Should not panic.
-	f.nextProject()
-	f.prevProject()
-}
 
-func TestFormModel_Update_enterKey_emptyProjects(t *testing.T) {
-	f := newFormModel(nil, nil, nil)
+	f := newFormModel(ctx, cfg, nil, nil)
 
-	// With no projects, submit should return nil.
-	f2, cmd := f.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	_ = f2
-	if cmd != nil {
-		t.Error("enter with no projects should return nil cmd")
+	if f.agent != "claude" {
+		t.Errorf("agent = %q, want %q (auto-selected single agent)", f.agent, "claude")
 	}
 }
 
-func TestFormModel_Update_tabKey(t *testing.T) {
-	projects := []string{"api", "frontend"}
-	f := newFormModel(projects, nil, nil)
+func TestNewFormModel_multipleAgents(t *testing.T) {
+	ctx := formContext{project: "myapp", baseBranch: "main"}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+			"aider":  {Cmd: "aider"},
+		},
+	}
 
-	f2, _ := f.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
-	if f2.selectedProject() != "frontend" {
-		t.Errorf("after tab: project = %q, want %q", f2.selectedProject(), "frontend")
+	f := newFormModel(ctx, cfg, nil, nil)
+
+	// With multiple agents, the first sorted agent should be pre-selected.
+	if f.agent != "aider" {
+		t.Errorf("agent = %q, want %q (first sorted agent)", f.agent, "aider")
 	}
 }
 
-func TestFormModel_Update_shiftTabKey(t *testing.T) {
-	projects := []string{"api", "frontend"}
-	f := newFormModel(projects, nil, nil)
-	f.nextProject() // go to frontend
+func TestNewFormModel_noAgents(t *testing.T) {
+	ctx := formContext{project: "myapp", baseBranch: "main"}
+	cfg := &config.Config{}
 
-	f2, _ := f.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift}))
-	if f2.selectedProject() != "api" {
-		t.Errorf("after shift+tab: project = %q, want %q", f2.selectedProject(), "api")
-	}
-}
+	f := newFormModel(ctx, cfg, nil, nil)
 
-func TestFormModel_Update_escKey(t *testing.T) {
-	f := newFormModel([]string{"api"}, nil, nil)
-
-	f2, cmd := f.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	_ = f2
-	if cmd != nil {
-		t.Error("esc key should return nil cmd")
-	}
-}
-
-func TestFormModel_Update_enterKey_emptyBranch(t *testing.T) {
-	f := newFormModel([]string{"api"}, nil, nil)
-
-	f2, cmd := f.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	_ = f2
-	// Empty branch means submit returns nil.
-	if cmd != nil {
-		t.Error("enter with empty branch should return nil cmd")
+	if f.agent != "" {
+		t.Errorf("agent = %q, want empty with no agents configured", f.agent)
 	}
 }
 
 func TestFormModel_View(t *testing.T) {
-	projects := []string{"api", "frontend"}
-	f := newFormModel(projects, nil, nil)
+	ctx := formContext{project: "api", baseBranch: "main"}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+	f := newFormModel(ctx, cfg, nil, nil)
 
 	out := f.View()
 	if out == "" {
 		t.Error("View() returned empty string")
 	}
-	// View renders with ANSI escape codes so use stripped comparison.
-	stripped := stripANSI(out)
-	if !strings.Contains(stripped, "api") {
-		t.Errorf("View() should contain project name 'api' (stripped): %q", stripped)
-	}
-	if !strings.Contains(stripped, "frontend") {
-		t.Errorf("View() should contain project name 'frontend' (stripped): %q", stripped)
+}
+
+func TestFormModel_completedInitiallyFalse(t *testing.T) {
+	ctx := formContext{project: "api", baseBranch: "main"}
+	cfg := &config.Config{}
+	f := newFormModel(ctx, cfg, nil, nil)
+
+	if f.completed() {
+		t.Error("form should not be completed initially")
 	}
 }
 
-func TestFormModel_View_multipleProjects(t *testing.T) {
-	projects := []string{"api", "frontend", "worker"}
-	f := newFormModel(projects, nil, nil)
-	f.nextProject() // move to frontend
-
-	out := f.View()
-	stripped := stripANSI(out)
-	if !strings.Contains(stripped, "frontend") {
-		t.Errorf("View() should contain selected project 'frontend': %q", stripped)
-	}
-	if !strings.Contains(stripped, "api") {
-		t.Errorf("View() should contain non-selected project 'api': %q", stripped)
-	}
-	if !strings.Contains(stripped, "worker") {
-		t.Errorf("View() should contain non-selected project 'worker': %q", stripped)
-	}
-}
-
-func TestShowForm_withProjects(t *testing.T) {
+func TestShowForm_fromProject(t *testing.T) {
 	m := Model{screen: screenList}
-	m.list = newList(nil)
+	m.list = newList(toListItems([]Item{
+		{Project: "api", Group: groupProject},
+	}))
 	m.cfg = &config.Config{
 		Projects: map[string]config.ProjectConfig{
-			"api":      {},
-			"frontend": {},
+			"api": {DefaultBranch: "develop"},
+		},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
 		},
 	}
 
@@ -162,14 +125,85 @@ func TestShowForm_withProjects(t *testing.T) {
 		t.Errorf("screen = %d, want %d", um.screen, screenForm)
 	}
 	if um.form == nil {
-		t.Error("form should be initialized after showForm()")
+		t.Fatal("form should be initialized after showForm()")
+	}
+	if um.form.project != "api" {
+		t.Errorf("form.project = %q, want %q", um.form.project, "api")
+	}
+	if um.form.baseBranch != "develop" {
+		t.Errorf("form.baseBranch = %q, want %q", um.form.baseBranch, "develop")
+	}
+}
+
+func TestShowForm_fromProjectDefaultBranch(t *testing.T) {
+	m := Model{screen: screenList}
+	m.list = newList(toListItems([]Item{
+		{Project: "api", Group: groupProject},
+	}))
+	m.cfg = &config.Config{
+		Projects: map[string]config.ProjectConfig{
+			"api": {},
+		},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+
+	updated, _ := m.showForm()
+	um := updated.(Model)
+	if um.form == nil {
+		t.Fatal("form should be initialized after showForm()")
+	}
+	if um.form.baseBranch != "main" {
+		t.Errorf("form.baseBranch = %q, want %q (default)", um.form.baseBranch, "main")
+	}
+}
+
+func TestShowForm_fromWorktree(t *testing.T) {
+	m := Model{screen: screenList}
+	m.list = newList(toListItems([]Item{
+		{Project: "api", Branch: "feature-1", Group: groupWorktree},
+	}))
+	m.cfg = &config.Config{
+		Projects: map[string]config.ProjectConfig{
+			"api": {},
+		},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+
+	updated, _ := m.showForm()
+	um := updated.(Model)
+	if um.form == nil {
+		t.Fatal("form should be initialized after showForm()")
+	}
+	if um.form.baseBranch != "feature-1" {
+		t.Errorf("form.baseBranch = %q, want %q", um.form.baseBranch, "feature-1")
+	}
+}
+
+func TestShowForm_noSelection(t *testing.T) {
+	m := Model{screen: screenList}
+	m.list = newList(nil)
+	m.cfg = &config.Config{}
+
+	updated, cmd := m.showForm()
+	um := updated.(Model)
+	if um.screen != screenList {
+		t.Errorf("screen = %d, want %d when no selection", um.screen, screenList)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil when no selection")
 	}
 }
 
 func TestUpdateForm_escKey(t *testing.T) {
+	ctx := formContext{project: "api", baseBranch: "main"}
+	cfg := &config.Config{}
 	m := Model{screen: screenForm}
 	m.list = newList(nil)
-	m.form = newFormModel([]string{"api"}, nil, nil)
+	m.form = newFormModel(ctx, cfg, nil, nil)
 
 	msg := tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape})
 	updated, _ := m.updateForm(msg)
@@ -184,9 +218,17 @@ func TestUpdateForm_escKey(t *testing.T) {
 }
 
 func TestUpdateForm_nonEscKey(t *testing.T) {
+	ctx := formContext{project: "api", baseBranch: "main"}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
 	m := Model{screen: screenForm}
 	m.list = newList(nil)
-	m.form = newFormModel([]string{"api"}, nil, nil)
+	m.form = newFormModel(ctx, cfg, nil, nil)
+	// Initialize the form so it can handle updates.
+	m.form.Init()
 
 	msg := tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"})
 	updated, _ := m.updateForm(msg)
@@ -195,4 +237,65 @@ func TestUpdateForm_nonEscKey(t *testing.T) {
 	if um.screen != screenForm {
 		t.Errorf("screen = %d, want %d after non-esc", um.screen, screenForm)
 	}
+}
+
+func TestFormModel_submit_returnsCmd(t *testing.T) {
+	ctx := formContext{project: "api", baseBranch: "develop"}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+	f := newFormModel(ctx, cfg, nil, nil)
+	f.branch = "my-feature"
+
+	cmd := f.submit()
+	if cmd == nil {
+		t.Fatal("submit() returned nil cmd")
+	}
+}
+
+func TestFormModel_submit_withoutBaseBranch_returnsCmd(t *testing.T) {
+	ctx := formContext{project: "api", baseBranch: ""}
+	cfg := &config.Config{}
+	f := newFormModel(ctx, cfg, nil, nil)
+	f.branch = "my-feature"
+
+	cmd := f.submit()
+	if cmd == nil {
+		t.Fatal("submit() returned nil cmd")
+	}
+}
+
+func TestShowForm_fromAgent(t *testing.T) {
+	m := Model{screen: screenList}
+	m.list = newList(toListItems([]Item{
+		{Project: "api", Branch: "feat-x", Group: groupAgent},
+	}))
+	m.cfg = &config.Config{
+		Projects: map[string]config.ProjectConfig{
+			"api": {},
+		},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Cmd: "claude"},
+		},
+	}
+
+	updated, _ := m.showForm()
+	um := updated.(Model)
+	if um.form == nil {
+		t.Fatal("form should be initialized after showForm()")
+	}
+	if um.form.baseBranch != "feat-x" {
+		t.Errorf("form.baseBranch = %q, want %q", um.form.baseBranch, "feat-x")
+	}
+}
+
+// toListItems converts a slice of Items to list.Items.
+func toListItems(items []Item) []list.Item {
+	result := make([]list.Item, len(items))
+	for i, item := range items {
+		result[i] = item
+	}
+	return result
 }

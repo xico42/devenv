@@ -54,19 +54,3 @@ func TestResolveAgentName_errorWhenNoneSet(t *testing.T) {
 		t.Error("resolveAgentName should error when no agent specified and no default")
 	}
 }
-
-func TestBuildAgentCmd_cmdOnly(t *testing.T) {
-	agent := config.AgentConfig{Cmd: "myagent"}
-	got := buildAgentCmd(agent)
-	if got != "myagent" {
-		t.Errorf("buildAgentCmd = %q, want myagent", got)
-	}
-}
-
-func TestBuildAgentCmd_cmdWithArgs(t *testing.T) {
-	agent := config.AgentConfig{Cmd: "echo", Args: []string{"hello", "world"}}
-	got := buildAgentCmd(agent)
-	if got != "echo hello world" {
-		t.Errorf("buildAgentCmd = %q, want %q", got, "echo hello world")
-	}
-}

@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/devenv/internal/session"
 	"github.com/xico42/devenv/internal/tmux"
 	"github.com/xico42/devenv/internal/worktree"
 )
@@ -59,6 +61,12 @@ var worktreeListCmd = &cobra.Command{
 
 // ── new ──────────────────────────────────────────────────────────────────────
 
+var (
+	worktreeNewFrom   string
+	worktreeNewAttach bool
+	worktreeNewAgent  string
+)
+
 var worktreeNewCmd = &cobra.Command{
 	Use:   "new <project> <branch>",
 	Short: "Create a new worktree for a project",
@@ -68,7 +76,13 @@ var worktreeNewCmd = &cobra.Command{
 		fmt.Fprintf(cmd.OutOrStdout(), "Creating worktree %s/%s...  ", project, branch)
 
 		svc := newWorktreeService()
-		result, err := svc.New(project, branch)
+		var result worktree.NewResult
+		var err error
+		if worktreeNewFrom != "" {
+			result, err = svc.NewFrom(project, branch, worktreeNewFrom)
+		} else {
+			result, err = svc.New(project, branch)
+		}
 		if err != nil {
 			fmt.Fprintln(cmd.OutOrStdout())
 			return worktreeErr(cmd, project, branch, err)
@@ -79,6 +93,42 @@ var worktreeNewCmd = &cobra.Command{
 		if result.EnvWritten {
 			fmt.Fprintf(cmd.OutOrStdout(), "  Env:  %s/.env\n", result.Path)
 		}
+
+		if worktreeNewAttach {
+			flagAgent := ""
+			if cmd.Flags().Changed("agent") {
+				flagAgent = worktreeNewAgent
+			}
+			agentName, err := resolveAgentName(flagAgent)
+			if err != nil {
+				return err
+			}
+			agent, err := cfg.AgentByName(agentName)
+			if err != nil {
+				return fmt.Errorf("resolving agent: %w", err)
+			}
+
+			name := semconv.SessionName(project, branch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Starting session %s...  ", name)
+
+			sesSvc := newSessionService()
+			err = sesSvc.Start(session.StartRequest{
+				Project: project,
+				Branch:  branch,
+				Path:    result.Path,
+				Cmd:     agent.Command(),
+				Env:     agent.Env,
+				Attach:  true,
+			})
+			if err != nil {
+				fmt.Fprintln(cmd.OutOrStdout())
+				return fmt.Errorf("starting session: %w", err)
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "done")
+			return execTmuxAttach(name)
+		}
+
 		return nil
 	},
 }
@@ -202,6 +252,10 @@ func worktreeErr(cmd *cobra.Command, project, branch string, err error) error {
 }
 
 func init() {
+	worktreeNewCmd.Flags().StringVar(&worktreeNewFrom, "from", "", "base branch to create worktree from")
+	worktreeNewCmd.Flags().BoolVar(&worktreeNewAttach, "attach", false, "start a coding session after creation")
+	worktreeNewCmd.Flags().StringVar(&worktreeNewAgent, "agent", "", "agent to use for the session (with --attach)")
+
 	worktreeDeleteCmd.Flags().BoolVar(&worktreeForce, "force", false, "skip confirmation and kill any active session")
 	worktreeEnvCmd.Flags().BoolVar(&worktreeEnvDryRun, "dry-run", false, "print generated .env without writing")
 

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // AgentConfig holds agent harness settings (command, args, env vars).
@@ -10,6 +11,14 @@ type AgentConfig struct {
 	Cmd  string            `toml:"cmd"`
 	Args []string          `toml:"args"`
 	Env  map[string]string `toml:"env"`
+}
+
+// Command returns the full command string (cmd + args joined).
+func (a AgentConfig) Command() string {
+	if len(a.Args) == 0 {
+		return a.Cmd
+	}
+	return a.Cmd + " " + strings.Join(a.Args, " ")
 }
 
 // AgentByName returns the named agent config or an error if not found.

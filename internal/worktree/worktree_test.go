@@ -78,13 +78,16 @@ func TestParseWorktreePorcelain_empty(t *testing.T) {
 
 // mockGit records calls and controls return values.
 type mockGit struct {
-	addErr       error
-	addNewErr    error
-	removeErr    error
-	listResult   []WorktreeInfo
-	listErr      error
-	addCalled    bool
-	addNewCalled bool
+	addErr               error
+	addNewErr            error
+	addNewFromErr        error
+	addNewFromCalled     bool
+	addNewFromStartPoint string
+	removeErr            error
+	listResult           []WorktreeInfo
+	listErr              error
+	addCalled            bool
+	addNewCalled         bool
 }
 
 func (m *mockGit) Add(cloneDir, worktreePath, branch string) error {
@@ -94,6 +97,11 @@ func (m *mockGit) Add(cloneDir, worktreePath, branch string) error {
 func (m *mockGit) AddNewBranch(cloneDir, worktreePath, branch string) error {
 	m.addNewCalled = true
 	return m.addNewErr
+}
+func (m *mockGit) AddNewBranchFrom(cloneDir, worktreePath, branch, startPoint string) error {
+	m.addNewFromCalled = true
+	m.addNewFromStartPoint = startPoint
+	return m.addNewFromErr
 }
 func (m *mockGit) Remove(cloneDir, worktreePath string) error { return m.removeErr }
 func (m *mockGit) List(cloneDir string) ([]WorktreeInfo, error) {
@@ -198,6 +206,107 @@ func TestService_New_branchNotFound_fallsBackToAddNew(t *testing.T) {
 	}
 	if !git.addNewCalled {
 		t.Error("expected AddNewBranch to be called on Add failure")
+	}
+}
+
+func TestService_New_withFromBranch(t *testing.T) {
+	git := &mockGit{}
+	svc, tmpDir := makeService(t, git, &mockTmuxRunner{})
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.NewFrom("myapp", "my-feature", "feature-auth")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !git.addNewFromCalled {
+		t.Error("expected AddNewBranchFrom to be called")
+	}
+	if git.addNewFromStartPoint != "feature-auth" {
+		t.Errorf("start point = %q, want %q", git.addNewFromStartPoint, "feature-auth")
+	}
+	expectedPath := cloneDirPath(tmpDir) + "__worktrees/my-feature"
+	if result.Path != expectedPath {
+		t.Errorf("path = %q, want %q", result.Path, expectedPath)
+	}
+}
+
+func TestService_NewFrom_notCloned(t *testing.T) {
+	svc, _ := makeService(t, &mockGit{}, &mockTmuxRunner{})
+	_, err := svc.NewFrom("myapp", "feature", "main")
+	if !errors.Is(err, ErrNotCloned) {
+		t.Errorf("expected ErrNotCloned, got %v", err)
+	}
+}
+
+func TestService_NewFrom_worktreeExists(t *testing.T) {
+	svc, tmpDir := makeService(t, &mockGit{}, &mockTmuxRunner{})
+	clone := cloneDirPath(tmpDir)
+	if err := os.MkdirAll(clone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	worktreePath := clone + "__worktrees/feature"
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.NewFrom("myapp", "feature", "main")
+	if !errors.Is(err, ErrWorktreeExists) {
+		t.Errorf("expected ErrWorktreeExists, got %v", err)
+	}
+}
+
+func TestService_NewFrom_gitError(t *testing.T) {
+	git := &mockGit{addNewFromErr: fmt.Errorf("invalid start point")}
+	svc, tmpDir := makeService(t, git, &mockTmuxRunner{})
+	if err := os.MkdirAll(cloneDirPath(tmpDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.NewFrom("myapp", "feature", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error when AddNewBranchFrom fails")
+	}
+}
+
+func TestService_NewFrom_unknownProject(t *testing.T) {
+	svc, _ := makeService(t, &mockGit{}, &mockTmuxRunner{})
+	_, err := svc.NewFrom("unknown", "feature", "main")
+	if err == nil {
+		t.Fatal("expected error for unconfigured project")
+	}
+}
+
+func TestService_NewFrom_withEnvTemplate(t *testing.T) {
+	git := &mockGitCreatesDir{}
+	tmpDir := t.TempDir()
+
+	templatePath := filepath.Join(tmpDir, "env.template")
+	if err := os.WriteFile(templatePath, []byte("X=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Defaults: config.DefaultsConfig{ProjectsDir: tmpDir},
+		Projects: map[string]config.ProjectConfig{
+			"myapp": {Repo: "git@github.com:user/myapp.git", DefaultBranch: "main", EnvTemplate: templatePath},
+		},
+	}
+	tc := tmux.NewClient(&mockTmuxRunner{})
+	svc := NewService(cfg, git, tc)
+
+	cloneDir := filepath.Join(tmpDir, "github.com", "user", "myapp")
+	if err := os.MkdirAll(cloneDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.NewFrom("myapp", "feature", "main")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.EnvWritten {
+		t.Error("expected EnvWritten=true when config template exists")
 	}
 }
 
@@ -434,6 +543,9 @@ func (m *mockGitCreatesDir) Add(cloneDir, worktreePath, branch string) error {
 	return os.MkdirAll(worktreePath, 0o755)
 }
 func (m *mockGitCreatesDir) AddNewBranch(cloneDir, worktreePath, branch string) error {
+	return os.MkdirAll(worktreePath, 0o755)
+}
+func (m *mockGitCreatesDir) AddNewBranchFrom(cloneDir, worktreePath, branch, startPoint string) error {
 	return os.MkdirAll(worktreePath, 0o755)
 }
 func (m *mockGitCreatesDir) Remove(cloneDir, worktreePath string) error { return nil }

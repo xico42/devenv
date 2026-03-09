@@ -47,7 +47,7 @@ func (m Model) attachAction() (tea.Model, tea.Cmd) {
 		if len(agents) == 1 {
 			// Single agent — skip picker.
 			agent, _ := cfg.AgentByName(agents[0])
-			agentCmd := buildAgentCmd(agent)
+			agentCmd := agent.Command()
 			return m, func() tea.Msg {
 				sessionName := semconv.SessionName(project, branch)
 				err := sesSvc.Start(session.StartRequest{
@@ -83,7 +83,7 @@ func (m Model) attachAction() (tea.Model, tea.Cmd) {
 
 		if len(agents) == 1 {
 			agent, _ := cfg.AgentByName(agents[0])
-			agentCmd := buildAgentCmd(agent)
+			agentCmd := agent.Command()
 			return m, func() tea.Msg {
 				if projSvc != nil {
 					_ = projSvc.Clone(project)
@@ -336,4 +336,29 @@ func (m Model) confirmDeleteNo() (tea.Model, tea.Cmd) {
 	m.confirm = nil
 	m.screen = screenList
 	return m, nil
+}
+
+// startSessionAfterCreate starts an agent session for a newly created worktree.
+func (m Model) startSessionAfterCreate(msg worktreeCreatedMsg) tea.Cmd {
+	cfg := m.cfg
+	sesSvc := m.sesSvc
+
+	return func() tea.Msg {
+		agent, err := cfg.AgentByName(msg.agent)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		agentCmd := agent.Command()
+		err = sesSvc.Start(session.StartRequest{
+			Project: msg.project,
+			Branch:  msg.branch,
+			Path:    msg.path,
+			Cmd:     agentCmd,
+			Env:     agent.Env,
+		})
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return attachMsg{session: semconv.SessionName(msg.project, msg.branch)}
+	}
 }

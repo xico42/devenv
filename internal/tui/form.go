@@ -2,147 +2,179 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
+	"charm.land/huh/v2"
 
+	"github.com/xico42/devenv/internal/config"
 	"github.com/xico42/devenv/internal/project"
 	"github.com/xico42/devenv/internal/worktree"
 )
 
 type formModel struct {
-	projects    []string
-	projectIdx  int
-	branchInput textinput.Model
+	form *huh.Form
 
+	// Bound values
+	branch string
+	attach bool
+	agent  string
+
+	// Context (read-only)
+	project    string
+	baseBranch string
+
+	// Services
 	wtSvc   *worktree.Service
 	projSvc *project.Service
 }
 
-func newFormModel(projects []string, wtSvc *worktree.Service, projSvc *project.Service) *formModel {
-	ti := textinput.New()
-	ti.Placeholder = "branch-name"
-	ti.Focus()
-
-	return &formModel{
-		projects:    projects,
-		branchInput: ti,
-		wtSvc:       wtSvc,
-		projSvc:     projSvc,
-	}
+type formContext struct {
+	project    string
+	baseBranch string
 }
 
-func (f *formModel) selectedProject() string {
-	if len(f.projects) == 0 {
-		return ""
+func newFormModel(ctx formContext, cfg *config.Config, wtSvc *worktree.Service, projSvc *project.Service) *formModel {
+	m := &formModel{
+		project:    ctx.project,
+		baseBranch: ctx.baseBranch,
+		attach:     true,
+		wtSvc:      wtSvc,
+		projSvc:    projSvc,
 	}
-	return f.projects[f.projectIdx]
+
+	agents := cfg.AgentNames()
+
+	group1 := huh.NewGroup(
+		huh.NewNote().
+			Title("New Worktree").
+			Description(fmt.Sprintf("Project: %s\nBase: %s", ctx.project, ctx.baseBranch)),
+		huh.NewInput().
+			Title("Branch name").
+			Placeholder("feature-name").
+			Value(&m.branch).
+			Validate(func(s string) error {
+				if strings.TrimSpace(s) == "" {
+					return fmt.Errorf("branch name required")
+				}
+				return nil
+			}),
+		huh.NewConfirm().
+			Title("Attach coding session?").
+			Value(&m.attach),
+	)
+
+	groups := []*huh.Group{group1}
+
+	if len(agents) > 1 {
+		var agentOpts []huh.Option[string]
+		for _, name := range agents {
+			agentOpts = append(agentOpts, huh.NewOption(name, name))
+		}
+		if len(agents) > 0 {
+			m.agent = agents[0]
+		}
+
+		group2 := huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Agent").
+				Options(agentOpts...).
+				Value(&m.agent),
+		).WithHideFunc(func() bool {
+			return !m.attach
+		})
+		groups = append(groups, group2)
+	} else if len(agents) == 1 {
+		m.agent = agents[0]
+	}
+
+	m.form = huh.NewForm(groups...)
+	return m
 }
 
-func (f *formModel) nextProject() {
-	if len(f.projects) == 0 {
-		return
-	}
-	f.projectIdx = (f.projectIdx + 1) % len(f.projects)
-}
-
-func (f *formModel) prevProject() {
-	if len(f.projects) == 0 {
-		return
-	}
-	f.projectIdx = (f.projectIdx - 1 + len(f.projects)) % len(f.projects)
+func (f *formModel) Init() tea.Cmd {
+	return f.form.Init()
 }
 
 func (f *formModel) Update(msg tea.Msg) (*formModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "tab", "right":
-			f.nextProject()
-			return f, nil
-		case "shift+tab", "left":
-			f.prevProject()
-			return f, nil
-		case "enter":
-			return f, f.submit()
-		}
+	form, cmd := f.form.Update(msg)
+	if ff, ok := form.(*huh.Form); ok {
+		f.form = ff
 	}
-
-	var cmd tea.Cmd
-	f.branchInput, cmd = f.branchInput.Update(msg)
 	return f, cmd
 }
 
-func (f *formModel) submit() tea.Cmd {
-	proj := f.selectedProject()
-	branch := strings.TrimSpace(f.branchInput.Value())
-	if proj == "" || branch == "" {
-		return nil
-	}
+func (f *formModel) View() string {
+	return f.form.View()
+}
 
+func (f *formModel) completed() bool {
+	return f.form.State == huh.StateCompleted
+}
+
+func (f *formModel) submit() tea.Cmd {
+	branch := strings.TrimSpace(f.branch)
+	project := f.project
+	baseBranch := f.baseBranch
+	attach := f.attach
+	agent := f.agent
 	wtSvc := f.wtSvc
 	projSvc := f.projSvc
 
 	return func() tea.Msg {
-		// Clone if needed.
 		if projSvc != nil {
-			_ = projSvc.Clone(proj) // ignore AlreadyClonedError
+			_ = projSvc.Clone(project)
 		}
 
-		result, err := wtSvc.New(proj, branch)
+		var result worktree.NewResult
+		var err error
+		if baseBranch != "" {
+			result, err = wtSvc.NewFrom(project, branch, baseBranch)
+		} else {
+			result, err = wtSvc.New(project, branch)
+		}
 		if err != nil {
 			return errMsg{err: err}
 		}
+
 		return worktreeCreatedMsg{
-			project: proj,
+			project: project,
 			branch:  branch,
 			path:    result.Path,
+			attach:  attach,
+			agent:   agent,
 		}
 	}
-}
-
-func (f *formModel) View() string {
-	titleStyle := lipgloss.NewStyle().Bold(true)
-
-	// Project selector line.
-	var projParts []string
-	for i, p := range f.projects {
-		if i == f.projectIdx {
-			projParts = append(projParts, lipgloss.NewStyle().Bold(true).Underline(true).Render(p))
-		} else {
-			projParts = append(projParts, lipgloss.NewStyle().Faint(true).Render(p))
-		}
-	}
-	projLine := strings.Join(projParts, "  /  ")
-
-	return fmt.Sprintf(
-		"%s\n────\n  Project:  %s\n  Branch:   %s\n────\nEnter: create  |  Esc: cancel  |  Tab: next project",
-		titleStyle.Render("New Worktree"),
-		projLine,
-		f.branchInput.View(),
-	)
 }
 
 // showForm transitions the model to the form screen.
 func (m Model) showForm() (tea.Model, tea.Cmd) {
-	projects := make([]string, 0, len(m.cfg.Projects))
-	for name := range m.cfg.Projects {
-		projects = append(projects, name)
+	sel := m.selectedItem()
+	if sel == nil {
+		return m, nil
 	}
-	// Sort for deterministic order.
-	sort.Strings(projects)
 
-	m.form = newFormModel(projects, m.wtSvc, m.projSvc)
+	var ctx formContext
+	switch sel.Group {
+	case groupProject:
+		ctx.project = sel.Project
+		if p, ok := m.cfg.Projects[sel.Project]; ok && p.DefaultBranch != "" {
+			ctx.baseBranch = p.DefaultBranch
+		} else {
+			ctx.baseBranch = "main"
+		}
+	case groupWorktree, groupAgent:
+		ctx.project = sel.Project
+		ctx.baseBranch = sel.Branch
+	}
+
+	m.form = newFormModel(ctx, m.cfg, m.wtSvc, m.projSvc)
 	m.screen = screenForm
-	return m, nil
+	return m, m.form.Init()
 }
 
 // updateForm handles messages while on the form screen.
 func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Check for escape to return to list.
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		if keyMsg.String() == "esc" {
 			m.screen = screenList
@@ -154,7 +186,9 @@ func (m Model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.form, cmd = m.form.Update(msg)
 
-	// If form submitted successfully, switch back to list.
-	// The worktreeCreatedMsg will be handled by the top-level Update.
+	if m.form.completed() {
+		return m, m.form.submit()
+	}
+
 	return m, cmd
 }

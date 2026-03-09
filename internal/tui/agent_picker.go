@@ -32,14 +32,6 @@ type agentPickerModel struct {
 	pending *agentPickerPending
 }
 
-// buildAgentCmd returns the full command string for an agent (cmd + args).
-func buildAgentCmd(agent config.AgentConfig) string {
-	if len(agent.Args) == 0 {
-		return agent.Cmd
-	}
-	return agent.Cmd + " " + strings.Join(agent.Args, " ")
-}
-
 func newAgentPicker(cfg *config.Config, defaultAgent string, pending *agentPickerPending) *agentPickerModel {
 	names := cfg.AgentNames()
 	cursor := 0
@@ -92,7 +84,7 @@ func (p *agentPickerModel) submit() tea.Cmd {
 	}
 
 	pending := p.pending
-	agentCmd := buildAgentCmd(agent)
+	agentCmd := agent.Command()
 
 	return func() tea.Msg {
 		path := pending.path

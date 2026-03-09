@@ -55,6 +55,7 @@ type EnvResult struct {
 type WorktreeRunner interface {
 	Add(cloneDir, worktreePath, branch string) error
 	AddNewBranch(cloneDir, worktreePath, branch string) error
+	AddNewBranchFrom(cloneDir, worktreePath, branch, startPoint string) error
 	Remove(cloneDir, worktreePath string) error
 	List(cloneDir string) ([]WorktreeInfo, error)
 }
@@ -81,6 +82,16 @@ func (r *RealWorktreeRunner) AddNewBranch(cloneDir, worktreePath, branch string)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git worktree add -b: %w\n%s", err, out)
+	}
+	return nil
+}
+
+func (r *RealWorktreeRunner) AddNewBranchFrom(cloneDir, worktreePath, branch, startPoint string) error {
+	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath, startPoint)
+	cmd.Dir = cloneDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git worktree add -b (from): %w\n%s", err, out)
 	}
 	return nil
 }
@@ -207,6 +218,55 @@ func (s *Service) New(project, branch string) (NewResult, error) {
 		if err := s.git.AddNewBranch(cloneDir, worktreePath, branch); err != nil {
 			return NewResult{}, fmt.Errorf("failed to create worktree (add: %v; add -b: %w)", addErr, err)
 		}
+	}
+
+	result := NewResult{Path: worktreePath}
+
+	content, source, _ := resolveTemplate(worktreePath, p)
+	if content != "" {
+		ctx := envtemplate.EnvTemplateContext{
+			Project:      project,
+			Branch:       branch,
+			WorktreePath: worktreePath,
+			SessionName:  semconv.SessionName(project, branch),
+		}
+		if rendered, renderErr := envtemplate.Process(content, source, ctx); renderErr == nil {
+			envPath := filepath.Join(worktreePath, ".env")
+			if writeErr := os.WriteFile(envPath, []byte(rendered), 0o600); writeErr == nil {
+				result.EnvWritten = true
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// NewFrom creates a new git worktree branching from the given start point.
+func (s *Service) NewFrom(project, branch, fromBranch string) (NewResult, error) {
+	p, ok := s.cfg.Projects[project]
+	if !ok {
+		return NewResult{}, fmt.Errorf("project %q is not configured", project)
+	}
+
+	cloneDir, worktreesRoot, worktreePath, err := s.resolvePaths(project, branch)
+	if err != nil {
+		return NewResult{}, err
+	}
+
+	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
+		return NewResult{}, fmt.Errorf("%w: %s", ErrNotCloned, project)
+	}
+
+	if _, err := os.Stat(worktreePath); err == nil {
+		return NewResult{}, fmt.Errorf("%w: %s/%s", ErrWorktreeExists, project, branch)
+	}
+
+	if err := os.MkdirAll(worktreesRoot, 0o755); err != nil {
+		return NewResult{}, fmt.Errorf("creating worktrees dir: %w", err)
+	}
+
+	if err := s.git.AddNewBranchFrom(cloneDir, worktreePath, branch, fromBranch); err != nil {
+		return NewResult{}, fmt.Errorf("creating worktree from %s: %w", fromBranch, err)
 	}
 
 	result := NewResult{Path: worktreePath}

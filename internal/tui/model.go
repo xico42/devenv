@@ -40,6 +40,8 @@ type worktreeCreatedMsg struct {
 	project string
 	branch  string
 	path    string
+	attach  bool
+	agent   string
 }
 
 // Model is the top-level Bubble Tea model.
@@ -171,6 +173,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = fmt.Sprintf("Created %s/%s", msg.project, msg.branch)
 		m.screen = screenList
 		m.form = nil
+		if msg.attach && msg.agent != "" {
+			return m, m.startSessionAfterCreate(msg)
+		}
 		return m, m.refreshCmd()
 	}
 

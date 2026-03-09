@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
-	"github.com/xico42/devenv/internal/config"
 	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/session"
 	"github.com/xico42/devenv/internal/tmux"
@@ -33,15 +31,6 @@ func resolveAgentName(flagValue string) (string, error) {
 		return cfg.Defaults.Agent, nil
 	}
 	return "", fmt.Errorf("no agent specified; use --agent or set defaults.agent in config")
-}
-
-// buildAgentCmd builds the full command string from an AgentConfig.
-func buildAgentCmd(agent config.AgentConfig) string {
-	cmd := agent.Cmd
-	if len(agent.Args) > 0 {
-		cmd = cmd + " " + strings.Join(agent.Args, " ")
-	}
-	return cmd
 }
 
 var sessionCmd = &cobra.Command{
@@ -101,7 +90,7 @@ var sessionStartCmd = &cobra.Command{
 			Project: project,
 			Branch:  branch,
 			Path:    path,
-			Cmd:     buildAgentCmd(agent),
+			Cmd:     agent.Command(),
 			Env:     agent.Env,
 			Attach:  sessionStartAttach,
 		})

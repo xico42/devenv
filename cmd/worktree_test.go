@@ -3,6 +3,7 @@ package cmd_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -141,5 +142,53 @@ func TestWorktreeDelete_abortedPrompt(t *testing.T) {
 
 	if err := runCmd(t, "--config", cfgPath, "worktree", "delete", "myapp", "feature"); err != nil {
 		t.Logf("delete returned error (acceptable): %v", err)
+	}
+}
+
+// TestWorktreeNew_fromFlag_parsed verifies the --from flag is registered and accepted.
+func TestWorktreeNew_fromFlag_parsed(t *testing.T) {
+	projectsDir := t.TempDir()
+	// Create the clone dir so we get past "not cloned" check
+	cloneDir := filepath.Join(projectsDir, "github.com", "user", "myapp")
+	if err := os.MkdirAll(cloneDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := writeConfig(t, projectsDir)
+	err := runCmd(t, "--config", cfgPath, "worktree", "new", "myapp", "feature", "--from", "main")
+	// Will fail because it's not a real git repo, but should NOT fail with "unknown flag"
+	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+		t.Fatal("--from flag not registered")
+	}
+}
+
+// TestWorktreeNew_attachFlag_parsed verifies the --attach flag is registered and accepted.
+func TestWorktreeNew_attachFlag_parsed(t *testing.T) {
+	projectsDir := t.TempDir()
+	// Create the clone dir so we get past "not cloned" check
+	cloneDir := filepath.Join(projectsDir, "github.com", "user", "myapp")
+	if err := os.MkdirAll(cloneDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := writeConfig(t, projectsDir)
+	err := runCmd(t, "--config", cfgPath, "worktree", "new", "myapp", "feature", "--attach")
+	// Will fail because it's not a real git repo, but should NOT fail with "unknown flag"
+	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+		t.Fatal("--attach flag not registered")
+	}
+}
+
+// TestWorktreeNew_agentFlag_parsed verifies the --agent flag is registered and accepted.
+func TestWorktreeNew_agentFlag_parsed(t *testing.T) {
+	projectsDir := t.TempDir()
+	// Create the clone dir so we get past "not cloned" check
+	cloneDir := filepath.Join(projectsDir, "github.com", "user", "myapp")
+	if err := os.MkdirAll(cloneDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := writeConfig(t, projectsDir)
+	err := runCmd(t, "--config", cfgPath, "worktree", "new", "myapp", "feature", "--attach", "--agent", "claude")
+	// Will fail because it's not a real git repo, but should NOT fail with "unknown flag"
+	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+		t.Fatal("--agent flag not registered")
 	}
 }
