@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/codeherd/internal/config"
 )
 
 var (
@@ -18,13 +18,16 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "devenv",
+	Use:   "ch",
 	Short: "Manage parallel agentic coding sessions",
-	Long: `devenv manages parallel agentic coding sessions across projects and git worktrees.
+	Long: `codeherd manages parallel agentic coding sessions across projects and git worktrees.
 
 It organizes projects, creates isolated worktrees, configures per-agent environments
 with deterministic port allocation, and orchestrates tmux sessions where AI coding
-agents (Claude Code, Aider, Codex, or any CLI tool) run independently.`,
+agents (Claude Code, Aider, Codex, or any CLI tool) run independently.
+
+It is like a shepherd, but for coding agents :).
+`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 		cfg, err = config.Load(cfgFile)
@@ -47,7 +50,7 @@ func init() {
 		&cobra.Group{ID: "remote", Title: "Remote Execution (planned):"},
 	)
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: ~/.config/devenv/config.toml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: ~/.config/codeherd/config.toml)")
 	rootCmd.PersistentFlags().StringVar(&token, "token", "", "Digital Ocean API token (overrides config and DIGITALOCEAN_TOKEN)")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable colored output")
 }

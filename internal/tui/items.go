@@ -5,7 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/list"
 
-	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/codeherd/internal/semconv"
 )
 
 // Item groups determine sort priority.

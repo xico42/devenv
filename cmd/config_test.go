@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	internalconfig "github.com/xico42/devenv/internal/config"
+	internalconfig "github.com/xico42/codeherd/internal/config"
 )
 
 // ── fieldFromStruct ───────────────────────────────────────────────────────────

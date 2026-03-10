@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/codeherd/internal/semconv"
 )
 
 func TestItem_FilterValue_worktree(t *testing.T) {

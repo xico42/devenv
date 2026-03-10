@@ -1,9 +1,9 @@
-BIN_NAME  := devenv
+BIN_NAME  := ch
 INSTALL   := $(HOME)/.local/bin/$(BIN_NAME)
 LDFLAGS   := -ldflags "-s -w -X main.version=$(shell git describe --tags --always --dirty 2>/dev/null || echo dev)"
 COVERAGE_THRESHOLD := 80
 
-.PHONY: build install test test-integration coverage lint clean deps setup
+.PHONY: build install test test-integration coverage lint clean deps setup check
 
 deps:
 	go mod download
@@ -36,5 +36,8 @@ lint:
 clean:
 	rm -f $(BIN_NAME) coverage.out
 
-setup: deps test test-integration lint build
+check: coverage test-integration lint build
+	@echo "All checks passed"
+
+setup: deps check
 	@echo "Setup complete"

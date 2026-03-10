@@ -1,13 +1,13 @@
 {
-  "name": "devenv-plugins",
+  "name": "codeherd-plugins",
   "owner": {
     "name": "xico42"
   },
   "plugins": [
     {
-      "name": "devenv-session-status",
+      "name": "codeherd-session-status",
       "source": "./plugins/claude",
-      "description": "Tracks devenv session status and sends desktop notifications when agents need attention"
+      "description": "Tracks codeherd session status and sends desktop notifications when agents need attention"
     }
   ]
 }

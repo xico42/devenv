@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/codeherd/internal/config"
 )
 
 // setTestConfig sets the package-level cfg for the duration of the test.

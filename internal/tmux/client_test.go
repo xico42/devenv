@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/codeherd/internal/tmux"
 )
 
 type mockRunner struct {
@@ -133,8 +133,8 @@ func TestClient_ListSessions_prefixedAndShell(t *testing.T) {
 	}
 }
 
-func TestClient_ListSessions_nonDevenv(t *testing.T) {
-	// Non-devenv sessions have empty option fields.
+func TestClient_ListSessions_nonCodeherd(t *testing.T) {
+	// Non-codeherd sessions have empty option fields.
 	r := &mockRunner{exitCode: 0, stdout: "other-session\t\t\t\t\t\n"}
 	c := tmux.NewClient(r)
 	records, err := c.ListSessions()
@@ -198,7 +198,7 @@ func TestClient_ListSessions_format(t *testing.T) {
 	c := tmux.NewClient(r)
 	_, _ = c.ListSessions()
 	argStr := fmt.Sprintf("%v", r.lastArgs)
-	for _, want := range []string{"#{session_name}", "#{@devenv_canonical_name}", "#{@devenv_session_type}"} {
+	for _, want := range []string{"#{session_name}", "#{@codeherd_canonical_name}", "#{@codeherd_session_type}"} {
 		if !strings.Contains(argStr, want) {
 			t.Errorf("expected %q in args %s", want, argStr)
 		}
@@ -259,7 +259,7 @@ func TestRealRunner_Run(t *testing.T) {
 // "tmux has-session -t __nonexistent__session__" which exits 1 when not found.
 func TestRealRunner_Run_nonZeroExit(t *testing.T) {
 	r := tmux.NewRealRunner()
-	_, _, exitCode, err := r.Run("has-session", "-t", "__nonexistent_devenv_test_session__")
+	_, _, exitCode, err := r.Run("has-session", "-t", "__nonexistent_codeherd_test_session__")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -344,14 +344,14 @@ func TestGetOption(t *testing.T) {
 	mr := &mockRunner{stdout: "running\n"}
 	c := tmux.NewClient(mr)
 
-	val, err := c.GetOption("myapp-feat", "@devenv_status")
+	val, err := c.GetOption("myapp-feat", "@codeherd_status")
 	if err != nil {
 		t.Fatalf("GetOption() error = %v", err)
 	}
 	if val != "running" {
 		t.Errorf("GetOption() = %q, want %q", val, "running")
 	}
-	wantArgs := []string{"show-option", "-t", "myapp-feat", "-v", "@devenv_status"}
+	wantArgs := []string{"show-option", "-t", "myapp-feat", "-v", "@codeherd_status"}
 	if !slices.Equal(mr.lastArgs, wantArgs) {
 		t.Errorf("args = %v, want %v", mr.lastArgs, wantArgs)
 	}
@@ -361,7 +361,7 @@ func TestGetOption_notSet(t *testing.T) {
 	mr := &mockRunner{stderr: "unknown option", exitCode: 1}
 	c := tmux.NewClient(mr)
 
-	val, err := c.GetOption("myapp-feat", "@devenv_status")
+	val, err := c.GetOption("myapp-feat", "@codeherd_status")
 	if err != nil {
 		t.Fatalf("GetOption() error = %v", err)
 	}
@@ -374,7 +374,7 @@ func TestGetOption_runnerError(t *testing.T) {
 	mr := &mockRunner{err: errors.New("boom")}
 	c := tmux.NewClient(mr)
 
-	_, err := c.GetOption("myapp-feat", "@devenv_status")
+	_, err := c.GetOption("myapp-feat", "@codeherd_status")
 	if err == nil {
 		t.Error("GetOption() should return error when runner fails")
 	}
@@ -384,11 +384,11 @@ func TestSetOption(t *testing.T) {
 	mr := &mockRunner{}
 	c := tmux.NewClient(mr)
 
-	err := c.SetOption("myapp-feat", "@devenv_status", "running")
+	err := c.SetOption("myapp-feat", "@codeherd_status", "running")
 	if err != nil {
 		t.Fatalf("SetOption() error = %v", err)
 	}
-	wantArgs := []string{"set-option", "-t", "myapp-feat", "@devenv_status", "running"}
+	wantArgs := []string{"set-option", "-t", "myapp-feat", "@codeherd_status", "running"}
 	if !slices.Equal(mr.lastArgs, wantArgs) {
 		t.Errorf("args = %v, want %v", mr.lastArgs, wantArgs)
 	}
@@ -398,7 +398,7 @@ func TestSetOption_error(t *testing.T) {
 	mr := &mockRunner{stderr: "no such session", exitCode: 1}
 	c := tmux.NewClient(mr)
 
-	err := c.SetOption("myapp-feat", "@devenv_status", "running")
+	err := c.SetOption("myapp-feat", "@codeherd_status", "running")
 	if err == nil {
 		t.Error("SetOption() should return error on non-zero exit")
 	}
@@ -408,7 +408,7 @@ func TestSetOption_runnerError(t *testing.T) {
 	mr := &mockRunner{err: errors.New("boom")}
 	c := tmux.NewClient(mr)
 
-	err := c.SetOption("myapp-feat", "@devenv_status", "running")
+	err := c.SetOption("myapp-feat", "@codeherd_status", "running")
 	if err == nil {
 		t.Error("SetOption() should return error when runner fails")
 	}

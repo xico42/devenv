@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/codeherd/internal/config"
 )
 
 // TestLoad_EmptyPath verifies that Load("") uses the XDG default path
@@ -138,9 +138,9 @@ func TestConfig_ApplyEnv(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	t.Setenv("DIGITALOCEAN_TOKEN", "env-token")
-	t.Setenv("DEVENV_REGION", "ams3")
-	t.Setenv("DEVENV_SIZE", "s-4vcpu-8gb")
-	t.Setenv("DEVENV_IMAGE", "ubuntu-22-04-x64")
+	t.Setenv("CODEHERD_REGION", "ams3")
+	t.Setenv("CODEHERD_SIZE", "s-4vcpu-8gb")
+	t.Setenv("CODEHERD_IMAGE", "ubuntu-22-04-x64")
 	t.Setenv("TAILSCALE_AUTH_KEY", "tskey-env")
 	cfg.ApplyEnv()
 	if cfg.Defaults.Token != "env-token" {
@@ -183,7 +183,7 @@ default_branch = "main"
 [projects.api]
 repo = "git@github.com:user/api.git"
 default_branch = "develop"
-env_template = "~/.config/devenv/templates/api.env.template"
+env_template = "~/.config/codeherd/templates/api.env.template"
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -208,7 +208,7 @@ env_template = "~/.config/devenv/templates/api.env.template"
 	}
 	// EnvTemplate should have ~ expanded
 	home, _ := os.UserHomeDir()
-	wantTpl := home + "/.config/devenv/templates/api.env.template"
+	wantTpl := home + "/.config/codeherd/templates/api.env.template"
 	if api.EnvTemplate != wantTpl {
 		t.Errorf("api.EnvTemplate = %q, want %q", api.EnvTemplate, wantTpl)
 	}

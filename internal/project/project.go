@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/codeherd/internal/config"
 )
 
 // ErrAlreadyCloned is returned by Clone when the target path already exists.

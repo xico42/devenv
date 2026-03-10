@@ -5,9 +5,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/session"
+	"github.com/xico42/codeherd/internal/tmux"
 )
 
 // mockRunner implements tmux.Runner for testing.
@@ -436,7 +436,7 @@ func TestShow_RunnerError(t *testing.T) {
 func TestStop_KillError(t *testing.T) {
 	line := "myapp-feature\tmyapp-feature\tagent\trunning\t\t\n"
 	r := &mockRunnerSequence{responses: []mockResponse{
-		{exitCode: 0, stdout: line},                    // list-sessions
+		{exitCode: 0, stdout: line},                   // list-sessions
 		{exitCode: 1, err: errors.New("kill failed")}, // kill-session
 	}}
 	tc := tmux.NewClient(r)

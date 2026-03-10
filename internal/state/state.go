@@ -28,7 +28,7 @@ func defaultPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("getting home dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "share", "devenv", "state.json"), nil
+	return filepath.Join(home, ".local", "share", "codeherd", "state.json"), nil
 }
 
 func resolvePath(path string) (string, error) {

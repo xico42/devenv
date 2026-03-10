@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/codeherd/internal/config"
 )
 
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)

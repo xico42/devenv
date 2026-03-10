@@ -6,13 +6,13 @@ import (
 )
 
 const (
-	SessionEnvVar = "DEVENV_SESSION"
+	SessionEnvVar = "CODEHERD_SESSION"
 
-	TmuxOptionStatus        = "@devenv_status"
-	TmuxOptionAnnotation    = "@devenv_annotation"
-	TmuxOptionStartedAt     = "@devenv_started_at"
-	TmuxOptionCanonicalName = "@devenv_canonical_name"
-	TmuxOptionSessionType   = "@devenv_session_type"
+	TmuxOptionStatus        = "@codeherd_status"
+	TmuxOptionAnnotation    = "@codeherd_annotation"
+	TmuxOptionStartedAt     = "@codeherd_started_at"
+	TmuxOptionCanonicalName = "@codeherd_canonical_name"
+	TmuxOptionSessionType   = "@codeherd_session_type"
 
 	StatusRunning = "running"
 	StatusWaiting = "waiting"

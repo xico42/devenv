@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/codeherd/internal/semconv"
 )
 
 // ANSI 256 colors (mosh-safe, no true color).

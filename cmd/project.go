@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/xico42/devenv/internal/project"
+	"github.com/xico42/codeherd/internal/project"
 )
 
 var projectCmd = &cobra.Command{

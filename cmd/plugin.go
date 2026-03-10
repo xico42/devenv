@@ -6,10 +6,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/xico42/devenv/internal/notify"
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/codeherd/internal/notify"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/session"
+	"github.com/xico42/codeherd/internal/tmux"
 )
 
 const maxAnnotationLen = 120
@@ -54,12 +54,12 @@ var pluginHandleClaudeCmd = &cobra.Command{
 		case "Notification":
 			annotation := truncate(input.Message, maxAnnotationLen)
 			_ = sesSvc.SetStatus(sessionName, semconv.StatusWaiting, annotation)
-			_ = notifySvc.Send("devenv", annotation)
+			_ = notifySvc.Send("codeherd", annotation)
 
 		case "Stop":
 			annotation := truncate(input.LastAssistantMessage, maxAnnotationLen)
 			_ = sesSvc.SetStatus(sessionName, semconv.StatusWaiting, annotation)
-			_ = notifySvc.Send("devenv", annotation)
+			_ = notifySvc.Send("codeherd", annotation)
 		}
 
 		return nil

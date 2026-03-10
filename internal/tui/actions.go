@@ -3,9 +3,9 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/worktree"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/session"
+	"github.com/xico42/codeherd/internal/worktree"
 )
 
 // ── Attach (agent) ──────────────────────────────────────────────────────────

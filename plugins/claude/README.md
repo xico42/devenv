@@ -1,6 +1,6 @@
-# devenv-session-status
+# codeherd-session-status
 
-A Claude Code plugin that tracks devenv session status and sends desktop notifications when agents need attention.
+A Claude Code plugin that tracks codeherd session status and sends desktop notifications when agents need attention.
 
 ## What it does
 
@@ -9,22 +9,22 @@ A Claude Code plugin that tracks devenv session status and sends desktop notific
 - Marks sessions as "running" when the agent resumes work
 - Adds a ⚡ prefix to tmux session names for quick visibility in `Ctrl+b s`
 - Sends desktop notifications when a session needs attention
-- Shows status annotations in the devenv TUI dashboard
+- Shows status annotations in the codeherd TUI dashboard
 
 ## Prerequisites
 
-- `devenv` must be installed and available in PATH
-- Sessions must be started via `devenv session start`
+- `codeherd` must be installed and available in PATH
+- Sessions must be started via `ch session start`
 
 ## Installation
 
 ### From marketplace
 
-Add the devenv marketplace and install:
+Add the codeherd marketplace and install:
 
 ```
-/plugin marketplace add xico42/devenv
-/plugin install devenv-session-status@devenv-plugins
+/plugin marketplace add xico42/codeherd
+/plugin install codeherd-session-status@codeherd-plugins
 ```
 
 ### Local development

@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/xico42/devenv/cmd"
+	"github.com/xico42/codeherd/cmd"
 )
 
 // runCmd sets os.Args to simulate a CLI invocation and calls Execute.
@@ -12,7 +12,7 @@ import (
 func runCmd(t *testing.T, args ...string) error {
 	t.Helper()
 	orig := os.Args
-	os.Args = append([]string{"devenv"}, args...)
+	os.Args = append([]string{"ch"}, args...)
 	defer func() { os.Args = orig }()
 	return cmd.Execute()
 }

@@ -11,10 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/tmux"
-	"github.com/xico42/devenv/internal/worktree"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/session"
+	"github.com/xico42/codeherd/internal/tmux"
+	"github.com/xico42/codeherd/internal/worktree"
 )
 
 func newSessionService() *session.Service {
@@ -101,7 +101,7 @@ var sessionStartCmd = &cobra.Command{
 
 		fmt.Fprintln(cmd.OutOrStdout(), "done")
 		if !sessionStartAttach {
-			fmt.Fprintf(cmd.OutOrStdout(), "Attach with: devenv session attach %s\n", name)
+			fmt.Fprintf(cmd.OutOrStdout(), "Attach with: ch session attach %s\n", name)
 		}
 
 		if sessionStartAttach {
@@ -236,7 +236,7 @@ func sessionErr(cmd *cobra.Command, err error) error {
 	case errors.Is(err, session.ErrSessionExists):
 		var sesErr *session.SessionExistsError
 		if errors.As(err, &sesErr) {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Error: session %s already exists. Attach with 'devenv session attach %s'.\n", sesErr.Name, sesErr.Name)
+			fmt.Fprintf(cmd.ErrOrStderr(), "Error: session %s already exists. Attach with 'ch session attach %s'.\n", sesErr.Name, sesErr.Name)
 		} else {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s\n", err)
 		}

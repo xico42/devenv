@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xico42/devenv/internal/provision"
+	"github.com/xico42/codeherd/internal/provision"
 )
 
 func TestRenderUserData(t *testing.T) {

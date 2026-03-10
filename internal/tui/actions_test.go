@@ -7,8 +7,8 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/semconv"
 )
 
 func TestStartDelete_noSelection(t *testing.T) {

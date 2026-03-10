@@ -17,8 +17,9 @@ func writeSessionConfigWithProjectsDir(t *testing.T, projectsDir string) string 
 	cfgPath := filepath.Join(cfgDir, "config.toml")
 	content := `[defaults]
 projects_dir = "` + projectsDir + `"
+agent = "test-agent"
 
-[defaults.agent]
+[agents.test-agent]
 cmd = "true"
 
 [projects.myapp]

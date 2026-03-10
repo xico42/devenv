@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "devenv plugin handle-claude"
+            "command": "ch plugin handle-claude"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "devenv plugin handle-claude"
+            "command": "ch plugin handle-claude"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "devenv plugin handle-claude"
+            "command": "ch plugin handle-claude"
           }
         ]
       }

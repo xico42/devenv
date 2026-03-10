@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xico42/devenv/internal/semconv"
+	"github.com/xico42/codeherd/internal/semconv"
 )
 
 func TestFlattenBranch(t *testing.T) {
@@ -92,16 +92,16 @@ func TestTmuxOptionConstants(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	if semconv.SessionEnvVar != "DEVENV_SESSION" {
-		t.Errorf("SessionEnvVar = %q, want DEVENV_SESSION", semconv.SessionEnvVar)
+	if semconv.SessionEnvVar != "CODEHERD_SESSION" {
+		t.Errorf("SessionEnvVar = %q, want CODEHERD_SESSION", semconv.SessionEnvVar)
 	}
 }
 
 func TestNewSemconvConstants(t *testing.T) {
-	if semconv.TmuxOptionCanonicalName != "@devenv_canonical_name" {
+	if semconv.TmuxOptionCanonicalName != "@codeherd_canonical_name" {
 		t.Errorf("TmuxOptionCanonicalName = %q", semconv.TmuxOptionCanonicalName)
 	}
-	if semconv.TmuxOptionSessionType != "@devenv_session_type" {
+	if semconv.TmuxOptionSessionType != "@codeherd_session_type" {
 		t.Errorf("TmuxOptionSessionType = %q", semconv.TmuxOptionSessionType)
 	}
 	if semconv.SessionTypeAgent != "agent" {

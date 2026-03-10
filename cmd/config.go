@@ -12,8 +12,8 @@ import (
 	"github.com/digitalocean/godo"
 	"github.com/spf13/cobra"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/do"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/do"
 )
 
 func init() {
@@ -31,7 +31,7 @@ func init() {
 
 var configCmd = &cobra.Command{
 	Use:     "config",
-	Short:   "Manage devenv configuration",
+	Short:   "Manage codeherd configuration",
 	GroupID: "config",
 }
 
@@ -104,7 +104,7 @@ var configGetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
 		if !config.IsValidKeyPath(key) {
-			return fmt.Errorf("unknown config key %q. Run 'devenv config show' to see valid keys", key)
+			return fmt.Errorf("unknown config key %q. Run 'ch config show' to see valid keys", key)
 		}
 		val, isSecret, err := getConfigValue(cfg, key)
 		if err != nil {
@@ -258,7 +258,7 @@ var configProfileCreateCmd = &cobra.Command{
 			}
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Profile %q created\nUse it with: devenv up --profile %s\n", name, name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Profile %q created\nUse it with: ch up --profile %s\n", name, name)
 		return nil
 	},
 }

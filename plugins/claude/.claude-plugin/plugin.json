@@ -1,10 +1,10 @@
 {
-  "name": "devenv-session-status",
-  "description": "Tracks devenv session status and sends desktop notifications when agents need attention",
+  "name": "codeherd-session-status",
+  "description": "Tracks codeherd session status and sends desktop notifications when agents need attention",
   "version": "0.1.0",
   "author": {
     "name": "xico42"
   },
-  "repository": "https://github.com/xico42/devenv",
+  "repository": "https://github.com/xico42/codeherd",
   "license": "MIT"
 }

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/tmux"
 )
 
 // TestNewRealWorktreeRunner verifies the constructor returns a non-nil runner.

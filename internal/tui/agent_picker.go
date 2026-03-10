@@ -7,11 +7,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/project"
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/worktree"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/project"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/session"
+	"github.com/xico42/codeherd/internal/worktree"
 )
 
 // agentPickerPending holds the context needed to start a session after agent selection.

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/xico42/devenv/cmd"
+	"github.com/xico42/codeherd/cmd"
 )
 
 var version = "dev"

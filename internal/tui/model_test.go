@@ -9,8 +9,8 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/tmux"
 )
 
 func TestModel_Update_windowResize(t *testing.T) {

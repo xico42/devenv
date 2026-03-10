@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/tmux"
 )
 
 var (
@@ -32,7 +32,7 @@ func (e *SessionExistsError) Unwrap() error {
 	return ErrSessionExists
 }
 
-// Service manages devenv tmux sessions and their persisted state.
+// Service manages codeherd tmux sessions and their persisted state.
 type Service struct {
 	tmux *tmux.Client
 }
@@ -53,8 +53,8 @@ type StartRequest struct {
 }
 
 // Start creates a new detached tmux session for the given project/branch,
-// sets the DEVENV_SESSION env var, and sets @devenv_status and
-// @devenv_started_at tmux options on the new session.
+// sets the CODEHERD_SESSION env var, and sets @codeherd_status and
+// @codeherd_started_at tmux options on the new session.
 // Returns ErrSessionExists if a session with the derived name already exists.
 // Returns ErrPathNotFound if Path does not exist on disk.
 func (s *Service) Start(req StartRequest) error {

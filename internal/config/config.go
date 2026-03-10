@@ -18,7 +18,7 @@ var configValidator = validator.New()
 
 const defaultImage = "ubuntu-24-04-x64"
 
-// Config holds all devenv configuration.
+// Config holds all codeherd configuration.
 type Config struct {
 	Defaults DefaultsConfig           `toml:"defaults"`
 	Profiles map[string]ProfileConfig `toml:"profiles"`
@@ -83,7 +83,7 @@ func (c *Config) expandPaths() error {
 	return nil
 }
 
-// Load reads config from path. If path is empty, uses ~/.config/devenv/config.toml.
+// Load reads config from path. If path is empty, uses ~/.config/codeherd/config.toml.
 // A missing file returns an empty Config with defaults and nil error.
 func Load(path string) (*Config, error) {
 	if path == "" {
@@ -91,7 +91,7 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("getting home dir: %w", err)
 		}
-		path = filepath.Join(home, ".config", "devenv", "config.toml")
+		path = filepath.Join(home, ".config", "codeherd", "config.toml")
 	}
 
 	cfg := &Config{path: path}
@@ -148,19 +148,19 @@ func (c *Config) Save() (err error) {
 	return nil
 }
 
-// ApplyEnv overlays DIGITALOCEAN_TOKEN, DEVENV_REGION, DEVENV_SIZE, DEVENV_IMAGE,
+// ApplyEnv overlays DIGITALOCEAN_TOKEN, CODEHERD_REGION, CODEHERD_SIZE, CODEHERD_IMAGE,
 // and TAILSCALE_AUTH_KEY environment variables onto the config.
 func (c *Config) ApplyEnv() {
 	if v := os.Getenv("DIGITALOCEAN_TOKEN"); v != "" {
 		c.Defaults.Token = v
 	}
-	if v := os.Getenv("DEVENV_REGION"); v != "" {
+	if v := os.Getenv("CODEHERD_REGION"); v != "" {
 		c.Defaults.Region = v
 	}
-	if v := os.Getenv("DEVENV_SIZE"); v != "" {
+	if v := os.Getenv("CODEHERD_SIZE"); v != "" {
 		c.Defaults.Size = v
 	}
-	if v := os.Getenv("DEVENV_IMAGE"); v != "" {
+	if v := os.Getenv("CODEHERD_IMAGE"); v != "" {
 		c.Defaults.Image = v
 	}
 	if v := os.Getenv("TAILSCALE_AUTH_KEY"); v != "" {
@@ -225,7 +225,7 @@ func tomlFields(t reflect.Type) map[string]bool {
 // It re-reads the file before writing to avoid clobbering concurrent changes.
 func (c *Config) SetKey(dotPath, value string) (err error) {
 	if !IsValidKeyPath(dotPath) {
-		return fmt.Errorf("unknown config key %q. Run 'devenv config show' to see valid keys", dotPath)
+		return fmt.Errorf("unknown config key %q. Run 'ch config show' to see valid keys", dotPath)
 	}
 
 	data, err := os.ReadFile(c.path)

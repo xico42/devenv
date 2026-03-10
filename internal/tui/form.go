@@ -7,9 +7,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/project"
-	"github.com/xico42/devenv/internal/worktree"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/project"
+	"github.com/xico42/codeherd/internal/worktree"
 )
 
 type formModel struct {

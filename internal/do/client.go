@@ -8,24 +8,24 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// DropletsService is the subset of godo.DropletsService used by devenv.
+// DropletsService is the subset of godo.DropletsService used by codeherd.
 type DropletsService interface {
 	Create(ctx context.Context, req *godo.DropletCreateRequest) (*godo.Droplet, *godo.Response, error)
 	Get(ctx context.Context, dropletID int) (*godo.Droplet, *godo.Response, error)
 	Delete(ctx context.Context, dropletID int) (*godo.Response, error)
 }
 
-// SSHKeysService is the subset of godo.KeysService used by devenv.
+// SSHKeysService is the subset of godo.KeysService used by codeherd.
 type SSHKeysService interface {
 	List(ctx context.Context, opts *godo.ListOptions) ([]godo.Key, *godo.Response, error)
 }
 
-// RegionsService is the subset of godo.RegionsService used by devenv.
+// RegionsService is the subset of godo.RegionsService used by codeherd.
 type RegionsService interface {
 	List(ctx context.Context, opts *godo.ListOptions) ([]godo.Region, *godo.Response, error)
 }
 
-// Client wraps the DO API with only the methods devenv needs.
+// Client wraps the DO API with only the methods codeherd needs.
 type Client struct {
 	Droplets DropletsService
 	Keys     SSHKeysService

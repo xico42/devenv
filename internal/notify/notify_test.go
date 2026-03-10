@@ -3,7 +3,7 @@ package notify_test
 import (
 	"testing"
 
-	"github.com/xico42/devenv/internal/notify"
+	"github.com/xico42/codeherd/internal/notify"
 )
 
 type mockNotifier struct {
@@ -19,15 +19,15 @@ func TestSend(t *testing.T) {
 	mock := &mockNotifier{}
 	svc := notify.NewService(mock)
 
-	err := svc.Send("devenv", "Claude needs input")
+	err := svc.Send("codeherd", "Claude needs input")
 	if err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}
 	if len(mock.calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(mock.calls))
 	}
-	if mock.calls[0].title != "devenv" {
-		t.Errorf("title = %q, want %q", mock.calls[0].title, "devenv")
+	if mock.calls[0].title != "codeherd" {
+		t.Errorf("title = %q, want %q", mock.calls[0].title, "codeherd")
 	}
 	if mock.calls[0].message != "Claude needs input" {
 		t.Errorf("message = %q, want %q", mock.calls[0].message, "Claude needs input")
@@ -38,7 +38,7 @@ func TestSend_EmptyMessage(t *testing.T) {
 	mock := &mockNotifier{}
 	svc := notify.NewService(mock)
 
-	err := svc.Send("devenv", "")
+	err := svc.Send("codeherd", "")
 	if err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}

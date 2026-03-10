@@ -1,12 +1,12 @@
-# devenv — Parallel Agentic Coding Session Manager
+# codeherd — Parallel Agentic Coding Session Manager
 
 ## Purpose
 
-`devenv` is a personal CLI for managing parallel agentic coding sessions. It organizes projects and git worktrees, configures per-agent environments with deterministic port allocation, and orchestrates tmux sessions where AI coding agents run independently.
+`codeherd` is a personal CLI for managing parallel agentic coding sessions. It organizes projects and git worktrees, configures per-agent environments with deterministic port allocation, and orchestrates tmux sessions where AI coding agents run independently.
 
-It is agent-agnostic: any CLI tool (Claude Code, Aider, Codex, or a custom script) can be a named agent with its own command, arguments, and environment variables. devenv manages the container around the agent — the tmux session, the worktree, the environment — not the agent itself.
+It is agent-agnostic: any CLI tool (Claude Code, Aider, Codex, or a custom script) can be a named agent with its own command, arguments, and environment variables. codeherd manages the container around the agent — the tmux session, the worktree, the environment — not the agent itself.
 
-Each session is independent. A devenv session running Claude Code with Agent Teams, another running Aider, and a third running a plain shell can coexist. devenv does not care what runs inside; it cares about the infrastructure that makes parallel work possible.
+Each session is independent. A codeherd session running Claude Code with Agent Teams, another running Aider, and a third running a plain shell can coexist. codeherd does not care what runs inside; it cares about the infrastructure that makes parallel work possible.
 
 ---
 
@@ -16,7 +16,7 @@ This project draws from the workflow described in:
 
 > **Claude Code On-The-Go** — https://granda.org/en/2026/01/02/claude-code-on-the-go/
 
-The article runs six Claude Code agents in parallel on an ephemeral cloud VM, using git worktrees for isolation, tmux for session persistence, and deterministic port allocation to avoid conflicts. devenv takes the same foundational ideas — worktrees, tmux, deterministic ports — and builds a structured CLI around them, with project awareness, named agent configurations, and automatic environment setup.
+The article runs six Claude Code agents in parallel on an ephemeral cloud VM, using git worktrees for isolation, tmux for session persistence, and deterministic port allocation to avoid conflicts. codeherd takes the same foundational ideas — worktrees, tmux, deterministic ports — and builds a structured CLI around them, with project awareness, named agent configurations, and automatic environment setup.
 
 ---
 
@@ -24,9 +24,9 @@ The article runs six Claude Code agents in parallel on an ephemeral cloud VM, us
 
 ### Primitives first
 
-`devenv` is built **primitives-first**. The core commands (`project`, `worktree`, `session`, `config`) are independent, composable building blocks. Each is useful on its own and testable in isolation.
+`codeherd` is built **primitives-first**. The core commands (`project`, `worktree`, `session`, `config`) are independent, composable building blocks. Each is useful on its own and testable in isolation.
 
-Higher-level automation (e.g., a single `devenv setup` command that clones a project, creates a worktree, generates the environment, and starts a session) will be built **on top of** these primitives, not instead of them. This layering is intentional:
+Higher-level automation (e.g., a single `ch setup` command that clones a project, creates a worktree, generates the environment, and starts a session) will be built **on top of** these primitives, not instead of them. This layering is intentional:
 
 1. **Primitives are stable** — the individual operations (clone a repo, create a worktree, start a session) are well-defined and unlikely to change.
 2. **Composite commands are opinionated** — a "start everything" command embeds workflow assumptions that differ between use cases. Building it on stable primitives means the opinions live in one place.
@@ -34,7 +34,7 @@ Higher-level automation (e.g., a single `devenv setup` command that clones a pro
 
 ### Project-aware, not just worktree-aware
 
-Unlike tools that treat worktrees as the primary unit, devenv treats **projects** as the organizing concept. A project has a git repository URL, a default branch, and potentially many worktrees. Sessions are anchored to a project and branch — `myapp-feature`, not just `feature`. This means:
+Unlike tools that treat worktrees as the primary unit, codeherd treats **projects** as the organizing concept. A project has a git repository URL, a default branch, and potentially many worktrees. Sessions are anchored to a project and branch — `myapp-feature`, not just `feature`. This means:
 
 - Worktrees from different projects never collide
 - The TUI can group sessions by project
@@ -58,9 +58,9 @@ This decouples the session lifecycle from any specific agent. The same worktree 
 
 ### Local-first, remote-capable
 
-All session management commands execute **directly on the machine where devenv is invoked** — git, tmux, and filesystem operations run locally with no SSH indirection.
+All session management commands execute **directly on the machine where codeherd is invoked** — git, tmux, and filesystem operations run locally with no SSH indirection.
 
-This means devenv works on any machine: a laptop, a cloud VM, a remote server. The same commands, same config structure, same behavior everywhere.
+This means codeherd works on any machine: a laptop, a cloud VM, a remote server. The same commands, same config structure, same behavior everywhere.
 
 Remote execution (spinning up ephemeral DO droplets and running sessions there) is a planned capability that extends this model. The session primitives stay the same; only the execution target changes.
 
@@ -72,7 +72,7 @@ Remote execution (spinning up ephemeral DO droplets and running sessions there) 
 2. **Named agent configurations** — define agents once in config, select at session start. Each agent has its own command, arguments, and environment.
 3. **Deterministic environment setup** — `.env.template` processing with hash-based port allocation (`port "name"`) eliminates conflicts across parallel sessions.
 4. **Automatic project bootstrapping** — clone, create worktree, generate environment, start session — composable primitives that chain into one-step setup.
-5. **Agent-agnostic** — any CLI tool can be a named agent. devenv manages the session container, not the agent.
+5. **Agent-agnostic** — any CLI tool can be a named agent. codeherd manages the session container, not the agent.
 6. **TUI for fleet overview** — visual dashboard showing all sessions, their status, and quick actions (attach, start, stop).
 7. **Self-contained binary** — a single Go binary with no runtime dependencies beyond git and tmux.
 8. **Remote execution (future)** — same interface on ephemeral DO droplets when local resources are insufficient.
@@ -81,7 +81,7 @@ Remote execution (spinning up ephemeral DO droplets and running sessions there) 
 
 ## Non-Goals
 
-- Not a replacement for Agent Teams or subagents (complementary — a devenv session can run Agent Teams inside it)
+- Not a replacement for Agent Teams or subagents (complementary — a codeherd session can run Agent Teams inside it)
 - Not a general-purpose infrastructure tool (use Terraform/Pulumi for that)
 - Not multi-user
 - Not a container orchestration tool
@@ -127,16 +127,16 @@ Create a worktree for a throwaway branch, start an agent session, let it work, r
 
 | Command | Description | Status |
 |---|---|---|
-| `devenv config` | Manage configuration (init, show, set, get) | Done |
-| `devenv project` | Manage project clones (list, show, clone) | Done |
-| `devenv worktree` | Manage git worktrees (list, new, delete, shell, env) | Done |
-| `devenv session` | Manage tmux sessions (start, list, attach, stop, show) | Done |
-| `devenv tui` | Interactive dashboard | Done |
-| `devenv setup` | One-command project bootstrapping | Planned |
-| `devenv up` | Create remote droplet | Planned (remote phase) |
-| `devenv down` | Destroy remote droplet | Planned (remote phase) |
-| `devenv status` | Show remote droplet status | Planned (remote phase) |
-| `devenv ssh` | Connect to remote droplet | Planned (remote phase) |
+| `ch config` | Manage configuration (init, show, set, get) | Done |
+| `ch project` | Manage project clones (list, show, clone) | Done |
+| `ch worktree` | Manage git worktrees (list, new, delete, shell, env) | Done |
+| `ch session` | Manage tmux sessions (start, list, attach, stop, show) | Done |
+| `ch tui` | Interactive dashboard | Done |
+| `ch setup` | One-command project bootstrapping | Planned |
+| `ch up` | Create remote droplet | Planned (remote phase) |
+| `ch down` | Destroy remote droplet | Planned (remote phase) |
+| `ch status` | Show remote droplet status | Planned (remote phase) |
+| `ch ssh` | Connect to remote droplet | Planned (remote phase) |
 
 ### tmux session architecture
 
@@ -144,7 +144,7 @@ Each agent session runs in its own tmux session. Shell sessions and the TUI also
 
 ```
 tmux sessions:
-  devenv           <- TUI / management session
+  codeherd         <- TUI / management session
   myapp-feature    <- agent session (Claude Code)
   myapp-fix-123    <- agent session (Aider)
   api-experiment   <- agent session (Claude Code)
@@ -161,11 +161,11 @@ Navigation uses tmux's built-in session switching:
 
 | Purpose | Path |
 |---|---|
-| CLI config | `~/.config/devenv/config.toml` |
-| Droplet state (future) | `~/.local/share/devenv/state.json` |
-| Binary | `~/.local/bin/devenv` |
+| CLI config | `~/.config/codeherd/config.toml` |
+| Droplet state (future) | `~/.local/share/codeherd/state.json` |
+| Binary | `~/.local/bin/ch` |
 
-### `~/.config/devenv/config.toml` structure
+### `~/.config/codeherd/config.toml` structure
 
 ```toml
 [defaults]
@@ -231,7 +231,7 @@ Clone paths mirror the repo URL structure under `projects_dir` (like `ghq` / Go 
 ## Package Layout
 
 ```
-devenv/
+codeherd/
 ├── main.go
 ├── go.mod / go.sum
 ├── Makefile
@@ -267,9 +267,7 @@ devenv/
 │
 └── docs/
     ├── project.md
-    ├── landscape.md
-    └── prds/
-        └── *.md
+    └── landscape.md
 ```
 
 ---
@@ -279,35 +277,34 @@ devenv/
 ### What's done
 
 - [x] Internal packages: config, project, worktree, session, tmux, envtemplate, tui, semconv
-- [x] `devenv config` — init, show, set, get
-- [x] `devenv project` — list, show, clone
-- [x] `devenv worktree` — list, new, delete, shell, env
-- [x] `devenv session` — start, list, attach, stop, show, with named agent support
-- [x] `devenv tui` — Bubble Tea v2 dashboard with session/worktree/project views
+- [x] `ch config` — init, show, set, get
+- [x] `ch project` — list, show, clone
+- [x] `ch worktree` — list, new, delete, shell, env
+- [x] `ch session` — start, list, attach, stop, show, with named agent support
+- [x] `ch tui` — Bubble Tea v2 dashboard with session/worktree/project views
 - [x] Named agent configurations (`[agents.<name>]`)
 - [x] Session state via tmux user-defined options (no file-based state)
 - [x] Automatic worktree creation on session start
 
 ### Next
 
-- [ ] `devenv setup` — one-command project bootstrapping: clone + worktree + env + session
+- [ ] `ch setup` — one-command project bootstrapping: clone + worktree + env + session
 - [ ] `.env.template` integration into session start (auto-generate `.env` from template before launching agent)
-- [ ] `using-devenv` agent skill — reference skill teaching Claude Code agents how to use devenv (see `docs/prds/prd-phase-04-agent-skill.md`)
 
 ### Future: Remote execution
 
-- [ ] `devenv up` — create ephemeral DO droplet via cloud-init
-- [ ] `devenv down` — destroy droplet and clean up
-- [ ] `devenv status` — show droplet status and cost
-- [ ] `devenv ssh` — connect to droplet (SSH or Mosh)
+- [ ] `ch up` — create ephemeral DO droplet via cloud-init
+- [ ] `ch down` — destroy droplet and clean up
+- [ ] `ch status` — show droplet status and cost
+- [ ] `ch ssh` — connect to droplet (SSH or Mosh)
 - [ ] Remote session management — start/stop/attach sessions on a remote host
-- [ ] Cloud-init provisioning (Docker, mise, Tailscale, tmux, devenv binary, agent tools)
-- [ ] `devenv stop` / `devenv start` — halt/resume droplet without destroying
+- [ ] Cloud-init provisioning (Docker, mise, Tailscale, tmux, codeherd binary, agent tools)
+- [ ] `ch stop` / `ch start` — halt/resume droplet without destroying
 
 ### Future: Quality of life
 
-- [ ] `devenv snapshot` — save/restore droplet snapshots
-- [ ] Multi-environment support (`devenv list`, named environments)
+- [ ] `ch snapshot` — save/restore droplet snapshots
+- [ ] Multi-environment support (`ch list`, named environments)
 - [ ] Cost guard / auto-shutdown for remote droplets
 - [ ] Desktop notifications when a session needs attention
 
@@ -321,14 +318,14 @@ When starting a new agent session to continue development on this project, provi
 2. **Bubble Tea v2** for the TUI (not v1)
 3. **XDG-compliant** file locations (config in `~/.config`, state in `~/.local/share`)
 4. **Go version**: 1.26 (managed via mise)
-5. **Binary install location**: `~/.local/bin/devenv`
+5. **Binary install location**: `~/.local/bin/ch`
 6. **All session commands run locally** — no SSH indirection for project/worktree/session
-7. **Each agent session = one tmux session** — management in `devenv` session
+7. **Each agent session = one tmux session** — management in `codeherd` session
 8. **projects_dir is configurable** — default `~/projects`
 9. **Clone paths mirror repo URL** — `~/projects/github.com/user/myapp/` (like `ghq` / Go modules)
 10. **Named agents** — `[agents.<name>]` in config, selected via `--agent` flag or TUI picker
 11. **Session state stored in tmux** — user-defined options on tmux sessions, no state files
-12. **Agent-agnostic** — devenv manages the session container, agents are pluggable
+12. **Agent-agnostic** — codeherd manages the session container, agents are pluggable
 13. **Digital Ocean** as the cloud provider for the remote execution phase
 14. **godo** for DO API access (not doctl CLI)
 15. **cloud-init** for droplet provisioning (not Ansible, not remote scripts)
@@ -338,11 +335,11 @@ When starting a new agent session to continue development on this project, provi
 
 ## TODO / Deferred Ideas
 
-Ideas and features that came up during development but were intentionally deferred. Each item should eventually become a PRD or be added to the roadmap.
+Ideas and features that came up during development but were intentionally deferred.
 
 | Idea | Context | Notes |
 |---|---|---|
-| `devenv config project add <name>` wizard | Came up during `config` command design | Interactive prompts for repo URL + default branch; alternative to `config set projects.<name>.repo ...` + `config set projects.<name>.default_branch ...`; no API calls needed |
+| `ch config project add <name>` wizard | Came up during `config` command design | Interactive prompts for repo URL + default branch; alternative to `config set projects.<name>.repo ...` + `config set projects.<name>.default_branch ...`; no API calls needed |
 | Session groups / batch operations | Natural extension of project-awareness | Start/stop all sessions for a project; "refresh all worktrees" |
 | Agent health monitoring | TUI enhancement | Detect stuck agents, auto-restart, resource usage alerts |
 | Template-based project setup | Extension of `.env.template` | Per-project setup scripts that run after worktree creation (install deps, build, etc.) |

@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/tmux"
-	"github.com/xico42/devenv/internal/worktree"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/session"
+	"github.com/xico42/codeherd/internal/tmux"
+	"github.com/xico42/codeherd/internal/worktree"
 )
 
 func newWorktreeService() *worktree.Service {
@@ -237,11 +237,11 @@ var worktreeEnvCmd = &cobra.Command{
 func worktreeErr(cmd *cobra.Command, project, branch string, err error) error {
 	switch {
 	case errors.Is(err, worktree.ErrNotCloned):
-		fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s is not cloned. Run 'devenv project clone %s' first.\n", project, project)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: %s is not cloned. Run 'ch project clone %s' first.\n", project, project)
 	case errors.Is(err, worktree.ErrWorktreeExists):
 		fmt.Fprintf(cmd.ErrOrStderr(), "Error: worktree %s/%s already exists.\n", project, branch)
 	case errors.Is(err, worktree.ErrWorktreeNotFound):
-		fmt.Fprintf(cmd.ErrOrStderr(), "Error: worktree %s/%s not found. Run 'devenv worktree new %s %s' first.\n", project, branch, project, branch)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Error: worktree %s/%s not found. Run 'ch worktree new %s %s' first.\n", project, branch, project, branch)
 	case errors.Is(err, worktree.ErrSessionRunning):
 		fmt.Fprintf(cmd.ErrOrStderr(), "Error: session %s-%s is running. Stop it first or use --force.\n", project, branch)
 	default:

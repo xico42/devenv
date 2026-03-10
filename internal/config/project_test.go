@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"github.com/xico42/devenv/internal/config"
+	"github.com/xico42/codeherd/internal/config"
 )
 
 func TestRepoPath(t *testing.T) {

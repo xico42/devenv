@@ -1,4 +1,4 @@
-module github.com/xico42/devenv
+module github.com/xico42/codeherd
 
 go 1.26
 

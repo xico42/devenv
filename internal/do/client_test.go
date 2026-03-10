@@ -3,7 +3,7 @@ package do_test
 import (
 	"testing"
 
-	"github.com/xico42/devenv/internal/do"
+	"github.com/xico42/codeherd/internal/do"
 )
 
 func TestNew_EmptyToken(t *testing.T) {

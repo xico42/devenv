@@ -9,11 +9,11 @@ import (
 // SessionRecord holds the structured data returned by ListSessions.
 type SessionRecord struct {
 	Name          string // current tmux session name (may have status prefix)
-	CanonicalName string // @devenv_canonical_name — original name, never changes
-	SessionType   string // @devenv_session_type — "agent" or "shell"
-	Status        string // @devenv_status
-	Annotation    string // @devenv_annotation
-	StartedAt     string // @devenv_started_at (raw RFC3339 string)
+	CanonicalName string // @codeherd_canonical_name — original name, never changes
+	SessionType   string // @codeherd_session_type — "agent" or "shell"
+	Status        string // @codeherd_status
+	Annotation    string // @codeherd_annotation
+	StartedAt     string // @codeherd_started_at (raw RFC3339 string)
 }
 
 // Client provides typed tmux operations built on a Runner.
@@ -124,7 +124,7 @@ func (c *Client) RenameSession(oldName, newName string) error {
 // ListSessions returns a SessionRecord for every active tmux session.
 // Returns nil (no error) when no sessions exist (tmux exits 1 in that case).
 func (c *Client) ListSessions() ([]SessionRecord, error) {
-	format := "#{session_name}\t#{@devenv_canonical_name}\t#{@devenv_session_type}\t#{@devenv_status}\t#{@devenv_annotation}\t#{@devenv_started_at}"
+	format := "#{session_name}\t#{@codeherd_canonical_name}\t#{@codeherd_session_type}\t#{@codeherd_status}\t#{@codeherd_annotation}\t#{@codeherd_started_at}"
 	stdout, stderr, code, err := c.runner.Run("list-sessions", "-F", format)
 	if err != nil {
 		return nil, fmt.Errorf("tmux list-sessions: %w", err)

@@ -6,10 +6,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/xico42/devenv/internal/project"
-	"github.com/xico42/devenv/internal/tmux"
-	"github.com/xico42/devenv/internal/tui"
-	"github.com/xico42/devenv/internal/worktree"
+	"github.com/xico42/codeherd/internal/project"
+	"github.com/xico42/codeherd/internal/tmux"
+	"github.com/xico42/codeherd/internal/tui"
+	"github.com/xico42/codeherd/internal/worktree"
 )
 
 var tuiCmd = &cobra.Command{

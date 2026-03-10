@@ -7,7 +7,7 @@ import (
 
 	"github.com/digitalocean/godo"
 
-	"github.com/xico42/devenv/internal/do"
+	"github.com/xico42/codeherd/internal/do"
 )
 
 type mockKeysService struct {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xico42/devenv/internal/state"
+	"github.com/xico42/codeherd/internal/state"
 )
 
 func TestLoad_MissingFile(t *testing.T) {

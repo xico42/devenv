@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/project"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/project"
 )
 
 // mockGitRunner records Clone calls and returns controlled errors.

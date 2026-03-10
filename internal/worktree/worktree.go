@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/envtemplate"
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/tmux"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/envtemplate"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/tmux"
 )
 
 // Sentinel errors returned by Service methods.

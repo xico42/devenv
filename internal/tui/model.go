@@ -11,12 +11,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/project"
-	"github.com/xico42/devenv/internal/semconv"
-	"github.com/xico42/devenv/internal/session"
-	"github.com/xico42/devenv/internal/tmux"
-	"github.com/xico42/devenv/internal/worktree"
+	"github.com/xico42/codeherd/internal/config"
+	"github.com/xico42/codeherd/internal/project"
+	"github.com/xico42/codeherd/internal/semconv"
+	"github.com/xico42/codeherd/internal/session"
+	"github.com/xico42/codeherd/internal/tmux"
+	"github.com/xico42/codeherd/internal/worktree"
 )
 
 const (
@@ -105,7 +105,7 @@ func newList(items []list.Item) list.Model {
 		items = []list.Item{}
 	}
 	l := list.New(items, newDelegate(), maxWidth, 20)
-	l.Title = "devenv"
+	l.Title = "codeherd"
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.SetShowHelp(false)
@@ -262,7 +262,7 @@ func (m Model) viewList() string {
 		}
 	}
 
-	tb := titleStyle.Render("devenv")
+	tb := titleStyle.Render("codeherd")
 	if agentCount > 0 {
 		counter := dimStyle.Render(fmt.Sprintf("%d agents", agentCount))
 		pad := maxWidth - lipgloss.Width(tb) - lipgloss.Width(counter)
