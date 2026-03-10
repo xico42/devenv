@@ -1,0 +1,13 @@
+{
+  "name": "devenv-plugins",
+  "owner": {
+    "name": "xico42"
+  },
+  "plugins": [
+    {
+      "name": "devenv-session-status",
+      "source": "./plugins/claude",
+      "description": "Tracks devenv session status and sends desktop notifications when agents need attention"
+    }
+  ]
+}

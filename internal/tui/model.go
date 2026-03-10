@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -317,19 +316,17 @@ func (m Model) refreshCmd() tea.Cmd {
 
 		// 2. Agent sessions (query tmux for status)
 		if tmuxClient != nil {
-			names, err := tmuxClient.ListSessions()
+			records, err := tmuxClient.ListSessions()
 			if err == nil {
-				for _, name := range names {
-					// "~sh" suffix matches semconv.ShellSessionName convention.
-					if strings.HasSuffix(name, "~sh") {
-						data.shellSessions[name] = true
-						continue
-					}
-					status, _ := tmuxClient.GetOption(name, semconv.TmuxOptionStatus)
-					question, _ := tmuxClient.GetOption(name, semconv.TmuxOptionQuestion)
-					data.agentSessions[name] = agentInfo{
-						status:   status,
-						question: question,
+				for _, r := range records {
+					switch r.SessionType {
+					case semconv.SessionTypeShell:
+						data.shellSessions[r.CanonicalName] = true
+					case semconv.SessionTypeAgent:
+						data.agentSessions[r.CanonicalName] = agentInfo{
+							status:     r.Status,
+							annotation: r.Annotation,
+						}
 					}
 				}
 			}

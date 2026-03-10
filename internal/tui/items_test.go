@@ -75,7 +75,7 @@ func TestBuildItems_agentStatus(t *testing.T) {
 			{project: "myapp", branch: "feat", path: "/p/wt/feat"},
 		},
 		agentSessions: map[string]agentInfo{
-			"myapp-feat": {status: semconv.StatusWaiting, question: "Allow?"},
+			"myapp-feat": {status: semconv.StatusWaiting, annotation: "Allow?"},
 		},
 		shellSessions: map[string]bool{},
 		projects:      []projEntry{{name: "myapp", cloned: true}},
@@ -87,8 +87,8 @@ func TestBuildItems_agentStatus(t *testing.T) {
 	if item.AgentStatus != semconv.StatusWaiting {
 		t.Errorf("AgentStatus = %q, want %q", item.AgentStatus, semconv.StatusWaiting)
 	}
-	if item.Question != "Allow?" {
-		t.Errorf("Question = %q, want %q", item.Question, "Allow?")
+	if item.Annotation != "Allow?" {
+		t.Errorf("Annotation = %q, want %q", item.Annotation, "Allow?")
 	}
 }
 
@@ -98,7 +98,7 @@ func TestBuildItems_shellSession(t *testing.T) {
 			{project: "api", branch: "dev", path: "/p/wt/dev"},
 		},
 		agentSessions: map[string]agentInfo{},
-		shellSessions: map[string]bool{"api-dev~sh": true},
+		shellSessions: map[string]bool{"api-dev": true},
 		projects:      []projEntry{{name: "api", cloned: true}},
 	}
 
@@ -191,6 +191,36 @@ func TestBuildItems_isMain_noCfg(t *testing.T) {
 	item := items[0].(Item)
 	if item.IsMain {
 		t.Error("IsMain should be false when cloneDirs is nil (no cfg)")
+	}
+}
+
+func TestBuildItems_waitingSortsBeforeRunning(t *testing.T) {
+	data := refreshResult{
+		worktrees: []wtEntry{
+			{project: "myapp", branch: "running-branch", path: "/p/wt/running"},
+			{project: "myapp", branch: "waiting-branch", path: "/p/wt/waiting"},
+		},
+		agentSessions: map[string]agentInfo{
+			"myapp-running-branch": {status: semconv.StatusRunning},
+			"myapp-waiting-branch": {status: semconv.StatusWaiting},
+		},
+		shellSessions: map[string]bool{},
+		projects:      []projEntry{{name: "myapp", cloned: true}},
+	}
+
+	items := buildItems(data)
+	if len(items) != 2 {
+		t.Fatalf("got %d items, want 2", len(items))
+	}
+
+	first := items[0].(Item)
+	if first.AgentStatus != semconv.StatusWaiting {
+		t.Errorf("item 0: AgentStatus = %q, want %q (waiting should sort first)", first.AgentStatus, semconv.StatusWaiting)
+	}
+
+	second := items[1].(Item)
+	if second.AgentStatus != semconv.StatusRunning {
+		t.Errorf("item 1: AgentStatus = %q, want %q", second.AgentStatus, semconv.StatusRunning)
 	}
 }
 

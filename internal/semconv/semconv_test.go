@@ -82,7 +82,7 @@ func TestTmuxOptionConstants(t *testing.T) {
 	// Verify constants have @ prefix (required for tmux user options).
 	for _, opt := range []string{
 		semconv.TmuxOptionStatus,
-		semconv.TmuxOptionQuestion,
+		semconv.TmuxOptionAnnotation,
 		semconv.TmuxOptionStartedAt,
 	} {
 		if !strings.HasPrefix(opt, "@") {
@@ -94,5 +94,20 @@ func TestTmuxOptionConstants(t *testing.T) {
 func TestConstants(t *testing.T) {
 	if semconv.SessionEnvVar != "DEVENV_SESSION" {
 		t.Errorf("SessionEnvVar = %q, want DEVENV_SESSION", semconv.SessionEnvVar)
+	}
+}
+
+func TestNewSemconvConstants(t *testing.T) {
+	if semconv.TmuxOptionCanonicalName != "@devenv_canonical_name" {
+		t.Errorf("TmuxOptionCanonicalName = %q", semconv.TmuxOptionCanonicalName)
+	}
+	if semconv.TmuxOptionSessionType != "@devenv_session_type" {
+		t.Errorf("TmuxOptionSessionType = %q", semconv.TmuxOptionSessionType)
+	}
+	if semconv.SessionTypeAgent != "agent" {
+		t.Errorf("SessionTypeAgent = %q", semconv.SessionTypeAgent)
+	}
+	if semconv.SessionTypeShell != "shell" {
+		t.Errorf("SessionTypeShell = %q", semconv.SessionTypeShell)
 	}
 }

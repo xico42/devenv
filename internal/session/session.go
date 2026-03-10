@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/xico42/devenv/internal/semconv"
@@ -59,12 +60,15 @@ type StartRequest struct {
 func (s *Service) Start(req StartRequest) error {
 	name := semconv.SessionName(req.Project, req.Branch)
 
-	exists, err := s.tmux.HasSession(name)
+	// Check for existing session by canonical name (handles prefixed names too).
+	records, err := s.tmux.ListSessions()
 	if err != nil {
 		return fmt.Errorf("checking session: %w", err)
 	}
-	if exists {
-		return &SessionExistsError{Name: name}
+	for _, r := range records {
+		if r.CanonicalName == name {
+			return &SessionExistsError{Name: name}
+		}
 	}
 
 	if _, err := os.Stat(req.Path); err != nil {
@@ -87,86 +91,128 @@ func (s *Service) Start(req StartRequest) error {
 	now := time.Now().UTC()
 	_ = s.tmux.SetOption(name, semconv.TmuxOptionStatus, semconv.StatusRunning)
 	_ = s.tmux.SetOption(name, semconv.TmuxOptionStartedAt, now.Format(time.RFC3339))
+	_ = s.tmux.SetOption(name, semconv.TmuxOptionCanonicalName, name)
+	_ = s.tmux.SetOption(name, semconv.TmuxOptionSessionType, semconv.SessionTypeAgent)
 
 	return nil
 }
 
 // SessionInfo holds display information about a tmux session.
 type SessionInfo struct {
-	Name      string
-	Project   string
-	Branch    string
-	Status    string
-	Question  string
-	StartedAt time.Time
-	UpdatedAt time.Time
+	Name       string
+	TmuxName   string // actual tmux session name (may have status prefix)
+	Project    string
+	Branch     string
+	Status     string
+	Annotation string
+	StartedAt  time.Time
+	UpdatedAt  time.Time
 }
 
-// List returns a SessionInfo for every active tmux session.
+// List returns a SessionInfo for every active agent tmux session.
 func (s *Service) List() ([]SessionInfo, error) {
-	names, err := s.tmux.ListSessions()
+	records, err := s.tmux.ListSessions()
 	if err != nil {
 		return nil, fmt.Errorf("listing tmux sessions: %w", err)
 	}
 
 	var result []SessionInfo
-	for _, name := range names {
-		info := SessionInfo{Name: name}
-		info.Status, _ = s.tmux.GetOption(name, semconv.TmuxOptionStatus)
-		info.Question, _ = s.tmux.GetOption(name, semconv.TmuxOptionQuestion)
-		if ts, _ := s.tmux.GetOption(name, semconv.TmuxOptionStartedAt); ts != "" {
-			info.StartedAt, _ = time.Parse(time.RFC3339, ts)
+	for _, r := range records {
+		if r.SessionType != semconv.SessionTypeAgent {
+			continue
+		}
+		info := SessionInfo{
+			Name:       r.CanonicalName,
+			Status:     r.Status,
+			Annotation: r.Annotation,
+		}
+		if r.StartedAt != "" {
+			info.StartedAt, _ = time.Parse(time.RFC3339, r.StartedAt)
 		}
 		result = append(result, info)
 	}
 	return result, nil
 }
 
-// Show returns the SessionInfo for a single named tmux session.
-// Returns ErrSessionNotFound if the session does not exist in tmux.
+// Show returns the SessionInfo for a single named tmux session, looked up by canonical name.
+// Returns ErrSessionNotFound if no agent session with that canonical name exists.
 func (s *Service) Show(name string) (*SessionInfo, error) {
-	exists, err := s.tmux.HasSession(name)
+	records, err := s.tmux.ListSessions()
 	if err != nil {
-		return nil, fmt.Errorf("checking session: %w", err)
+		return nil, fmt.Errorf("listing sessions: %w", err)
 	}
-	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrSessionNotFound, name)
+	for _, r := range records {
+		if r.CanonicalName == name && r.SessionType == semconv.SessionTypeAgent {
+			info := &SessionInfo{
+				Name:       r.CanonicalName,
+				TmuxName:   r.Name,
+				Status:     r.Status,
+				Annotation: r.Annotation,
+			}
+			if r.StartedAt != "" {
+				info.StartedAt, _ = time.Parse(time.RFC3339, r.StartedAt)
+			}
+			return info, nil
+		}
 	}
-
-	info := &SessionInfo{Name: name}
-	info.Status, _ = s.tmux.GetOption(name, semconv.TmuxOptionStatus)
-	info.Question, _ = s.tmux.GetOption(name, semconv.TmuxOptionQuestion)
-	if ts, _ := s.tmux.GetOption(name, semconv.TmuxOptionStartedAt); ts != "" {
-		info.StartedAt, _ = time.Parse(time.RFC3339, ts)
-	}
-	return info, nil
+	return nil, fmt.Errorf("%w: %s", ErrSessionNotFound, name)
 }
 
-// Stop kills the named tmux session.
-// Returns ErrSessionNotFound if the session does not exist in tmux.
+// Stop kills the named tmux session, resolving the actual session name by canonical name.
+// Returns ErrSessionNotFound if no agent session with that canonical name exists.
 func (s *Service) Stop(name string) error {
-	exists, err := s.tmux.HasSession(name)
+	records, err := s.tmux.ListSessions()
 	if err != nil {
-		return fmt.Errorf("checking session: %w", err)
+		return fmt.Errorf("listing sessions: %w", err)
 	}
-	if !exists {
+	actualName := ""
+	for _, r := range records {
+		if r.CanonicalName == name && r.SessionType == semconv.SessionTypeAgent {
+			actualName = r.Name
+			break
+		}
+	}
+	if actualName == "" {
 		return fmt.Errorf("%w: %s", ErrSessionNotFound, name)
 	}
-
-	if err := s.tmux.KillSession(name); err != nil {
+	if err := s.tmux.KillSession(actualName); err != nil {
 		return fmt.Errorf("killing session: %w", err)
 	}
-
 	return nil
 }
 
-// MarkRunning transitions a session's status to running and clears any pending
-// question. Errors are suppressed — this method always returns nil.
-func (s *Service) MarkRunning(name string) error {
+// SetStatus transitions a session's status and updates the annotation.
+// It resolves the actual tmux session name by canonical name.
+// Errors are suppressed — this method always returns nil.
+func (s *Service) SetStatus(name, status, annotation string) error {
 	if name == "" {
 		return nil
 	}
-	_ = s.tmux.SetOption(name, semconv.TmuxOptionStatus, semconv.StatusRunning)
-	_ = s.tmux.SetOption(name, semconv.TmuxOptionQuestion, "")
+	if status != semconv.StatusRunning && status != semconv.StatusWaiting {
+		return nil
+	}
+
+	records, _ := s.tmux.ListSessions()
+	actualName := ""
+	for _, r := range records {
+		if r.CanonicalName == name && r.SessionType == semconv.SessionTypeAgent {
+			actualName = r.Name
+			break
+		}
+	}
+	if actualName == "" {
+		return nil // session not found, suppress
+	}
+
+	_ = s.tmux.SetOption(actualName, semconv.TmuxOptionStatus, status)
+	_ = s.tmux.SetOption(actualName, semconv.TmuxOptionAnnotation, annotation)
+
+	hasPrefix := strings.HasPrefix(actualName, semconv.StatusPrefix)
+	if status == semconv.StatusRunning && hasPrefix {
+		_ = s.tmux.RenameSession(actualName, strings.TrimPrefix(actualName, semconv.StatusPrefix))
+	} else if status != semconv.StatusRunning && !hasPrefix {
+		_ = s.tmux.RenameSession(actualName, semconv.StatusPrefix+actualName)
+	}
+
 	return nil
 }

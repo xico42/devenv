@@ -33,7 +33,7 @@ func TestExecute_Subcommands(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := dir + "/config.toml"
 
-	subcommands := []string{"up", "down", "status", "ssh", "config", "notify", "project", "worktree", "session"}
+	subcommands := []string{"up", "down", "status", "ssh", "config", "project", "worktree", "session"}
 	for _, sub := range subcommands {
 		t.Run(sub, func(t *testing.T) {
 			err := runCmd(t, "--config", cfgPath, sub)

@@ -178,6 +178,7 @@ func (m Model) shellAction() tea.Cmd {
 		}
 
 		shellName := semconv.ShellSessionName(project, branch)
+		sessionName := semconv.SessionName(project, branch)
 
 		// Create shell session if it doesn't exist.
 		exists, err := tmuxClient.HasSession(shellName)
@@ -188,6 +189,8 @@ func (m Model) shellAction() tea.Cmd {
 			if err := tmuxClient.NewSession(shellName, path); err != nil {
 				return errMsg{err: err}
 			}
+			_ = tmuxClient.SetOption(shellName, semconv.TmuxOptionCanonicalName, sessionName)
+			_ = tmuxClient.SetOption(shellName, semconv.TmuxOptionSessionType, semconv.SessionTypeShell)
 		}
 
 		return attachMsg{session: shellName}

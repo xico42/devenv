@@ -220,9 +220,6 @@ size = "s-4vcpu-8gb"
 [projects.myapp]
 repo = "git@github.com:user/myapp.git"
 default_branch = "main"
-
-[notify]
-provider = "telegram"
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -242,9 +239,6 @@ provider = "telegram"
 	}
 	if !strings.Contains(out, "myapp") {
 		t.Error("show output missing project 'myapp'")
-	}
-	if !strings.Contains(out, "telegram") {
-		t.Error("show output missing notify provider")
 	}
 }
 
@@ -281,37 +275,6 @@ func TestGetConfigValue_ProjectsKey_UnknownProject(t *testing.T) {
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Error("get unknown project = nil, want error")
-	}
-}
-
-func TestGetConfigValue_NotifyProvider(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte("[notify]\nprovider = \"telegram\"\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	var buf bytes.Buffer
-	rootCmd.SetOut(&buf)
-	rootCmd.SetArgs([]string{"--config", path, "config", "get", "notify.provider"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if strings.TrimSpace(buf.String()) != "telegram" {
-		t.Errorf("get notify.provider = %q, want %q", buf.String(), "telegram")
-	}
-}
-
-func TestGetConfigValue_NotifyNestedKey(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-
-	rootCmd.SetArgs([]string{"--config", path, "config", "get", "notify.telegram.bot_token"})
-	err := rootCmd.Execute()
-	// Reset args so subsequent tests are not affected.
-	rootCmd.SetArgs(nil)
-	if err == nil {
-		t.Error("get nested notify key = nil, want error")
 	}
 }
 

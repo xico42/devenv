@@ -377,8 +377,6 @@ func TestIsValidKeyPath(t *testing.T) {
 		{"projects.myapp.default_branch", true},
 		{"projects.myapp.env_template", true},
 		{"projects.myapp.nope", false},
-		{"notify.provider", true},
-		{"notify.telegram.bot_token", true},
 		{"unknown.key", false},
 		{"defaults", false},
 		{"", false},

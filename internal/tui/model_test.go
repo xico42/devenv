@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/xico42/devenv/internal/config"
-	"github.com/xico42/devenv/internal/semconv"
 	"github.com/xico42/devenv/internal/tmux"
 )
 
@@ -526,21 +525,14 @@ func (r *mockTmuxRunner) Run(args ...string) (string, string, int, error) {
 }
 
 func TestModel_refreshCmd_withTmuxClient(t *testing.T) {
-	// Sessions: one agent session, one shell session.
-	agentSession := semconv.SessionName("myapp", "feat")      // "myapp-feat"
-	shellSession := semconv.ShellSessionName("myapp", "feat") // "myapp-feat~sh"
+	// Sessions: one agent session (waiting/prefixed), one shell session.
+	agentLine := "⚡ myapp-feat\tmyapp-feat\tagent\twaiting\tneed input\t\n"
+	shellLine := "myapp-feat~sh\tmyapp-feat\tshell\t\t\t\n"
+	listOutput := agentLine + shellLine
 
-	listOutput := agentSession + "\n" + shellSession + "\n"
-
-	// Runner response sequence:
-	//   1. list-sessions → the two session names
-	//   2. show-option for TmuxOptionStatus on agentSession → "running"
-	//   3. show-option for TmuxOptionQuestion on agentSession → ""
 	runner := &mockTmuxRunner{
 		responses: []mockTmuxResponse{
-			{stdout: listOutput, exitCode: 0}, // list-sessions
-			{stdout: "running", exitCode: 0},  // GetOption status
-			{stdout: "", exitCode: 0},         // GetOption question
+			{stdout: listOutput, exitCode: 0}, // list-sessions (single call)
 		},
 	}
 	client := tmux.NewClient(runner)
@@ -559,19 +551,15 @@ func TestModel_refreshCmd_withTmuxClient(t *testing.T) {
 		t.Fatalf("refreshCmd() produced %T, want itemsMsg", msg)
 	}
 
-	// GetOption must have been called for the agent session (not the shell session).
-	// That means runner advanced at least to index 2 (list-sessions + show-option status).
-	if runner.idx < 2 {
-		t.Errorf("runner.idx = %d, expected at least 2 calls (list-sessions + show-option)", runner.idx)
+	// Exactly 1 runner call — no per-session GetOption calls.
+	if runner.idx != 1 {
+		t.Errorf("runner.idx = %d, want 1 (single list-sessions call)", runner.idx)
 	}
 
-	// No item should have a Branch that ends with "~sh" — shell sessions are
-	// filtered out before items are built.
+	// No item should have a Branch that ends with "~sh".
 	for _, item := range items {
 		if strings.HasSuffix(item.Branch, "~sh") {
 			t.Errorf("shell session branch %q leaked into items", item.Branch)
 		}
 	}
-
-	_ = shellSession
 }

@@ -24,7 +24,6 @@ type Config struct {
 	Profiles map[string]ProfileConfig `toml:"profiles"`
 	Projects map[string]ProjectConfig `toml:"projects"`
 	Agents   map[string]AgentConfig   `toml:"agents"`
-	Notify   NotifyConfig             `toml:"notify"`
 
 	path string // runtime only, not serialized
 }
@@ -342,8 +341,6 @@ func IsValidKeyPath(dotPath string) bool {
 		return len(parts) == 3 && profileKeys[parts[2]]
 	case "projects":
 		return len(parts) == 3 && projectKeys[parts[2]]
-	case "notify":
-		return len(parts) >= 2
 	default:
 		return false
 	}

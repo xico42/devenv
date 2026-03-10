@@ -80,6 +80,14 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		}
 	}
 
+	if item.HasAgent && item.Annotation != "" {
+		ann := item.Annotation
+		if len(ann) > 60 {
+			ann = ann[:57] + "..."
+		}
+		tags = append(tags, dimStyle.Render(ann))
+	}
+
 	line2 := "    " + strings.Join(tags, "  ")
 	if len(tags) == 0 {
 		line2 = ""

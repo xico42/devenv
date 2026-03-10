@@ -147,8 +147,8 @@ var sessionShowCmd = &cobra.Command{
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		fmt.Fprintf(w, "Session:\t%s\n", info.Name)
 		fmt.Fprintf(w, "Status:\t%s\n", info.Status)
-		if info.Question != "" {
-			fmt.Fprintf(w, "Question:\t%s\n", info.Question)
+		if info.Annotation != "" {
+			fmt.Fprintf(w, "Annotation:\t%s\n", info.Annotation)
 		}
 		if !info.StartedAt.IsZero() {
 			fmt.Fprintf(w, "Started:\t%s\n", info.StartedAt.Format("2006-01-02T15:04:05Z"))
@@ -165,11 +165,11 @@ var sessionAttachCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc := newSessionService()
-		_, err := svc.Show(args[0]) // verify it exists
+		info, err := svc.Show(args[0]) // verify it exists
 		if err != nil {
 			return sessionErr(cmd, err)
 		}
-		return execTmuxAttach(args[0])
+		return execTmuxAttach(info.TmuxName) // use actual tmux name for attach
 	},
 }
 
@@ -229,21 +229,6 @@ var sessionStopCmd = &cobra.Command{
 	},
 }
 
-// ── mark-running ─────────────────────────────────────────────────────────────
-
-var markRunningSession string
-
-var sessionMarkRunningCmd = &cobra.Command{
-	Use:    "mark-running",
-	Short:  "Internal: reset session status to running",
-	Hidden: true,
-	Args:   cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		svc := newSessionService()
-		return svc.MarkRunning(markRunningSession)
-	},
-}
-
 // ── error helper ─────────────────────────────────────────────────────────────
 
 func sessionErr(cmd *cobra.Command, err error) error {
@@ -275,13 +260,11 @@ func init() {
 	sessionStartCmd.Flags().BoolVar(&sessionStartNoCreate, "no-create", false, "fail if worktree does not exist instead of creating it")
 	sessionStartCmd.Flags().StringVar(&sessionStartAgent, "agent", "", "agent to use for the session")
 	sessionStopCmd.Flags().BoolVar(&sessionStopForce, "force", false, "skip confirmation prompt")
-	sessionMarkRunningCmd.Flags().StringVar(&markRunningSession, "session", "", "session name")
 
 	sessionCmd.AddCommand(sessionStartCmd)
 	sessionCmd.AddCommand(sessionListCmd)
 	sessionCmd.AddCommand(sessionShowCmd)
 	sessionCmd.AddCommand(sessionAttachCmd)
 	sessionCmd.AddCommand(sessionStopCmd)
-	sessionCmd.AddCommand(sessionMarkRunningCmd)
 	rootCmd.AddCommand(sessionCmd)
 }

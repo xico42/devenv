@@ -8,12 +8,19 @@ import (
 const (
 	SessionEnvVar = "DEVENV_SESSION"
 
-	TmuxOptionStatus    = "@devenv_status"
-	TmuxOptionQuestion  = "@devenv_question"
-	TmuxOptionStartedAt = "@devenv_started_at"
+	TmuxOptionStatus        = "@devenv_status"
+	TmuxOptionAnnotation    = "@devenv_annotation"
+	TmuxOptionStartedAt     = "@devenv_started_at"
+	TmuxOptionCanonicalName = "@devenv_canonical_name"
+	TmuxOptionSessionType   = "@devenv_session_type"
 
 	StatusRunning = "running"
 	StatusWaiting = "waiting"
+
+	SessionTypeAgent = "agent"
+	SessionTypeShell = "shell"
+
+	StatusPrefix = "⚡ "
 )
 
 func FlattenBranch(branch string) string {

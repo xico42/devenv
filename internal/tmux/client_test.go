@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/xico42/devenv/internal/tmux"
@@ -78,14 +79,76 @@ func TestClient_KillSession_error(t *testing.T) {
 }
 
 func TestClient_ListSessions_ok(t *testing.T) {
-	r := &mockRunner{exitCode: 0, stdout: "foo\nbar\n"}
+	line := "myapp-feat\tmyapp-feat\tagent\trunning\tdoing stuff\t2026-01-01T00:00:00Z"
+	r := &mockRunner{exitCode: 0, stdout: line + "\n"}
 	c := tmux.NewClient(r)
-	sessions, err := c.ListSessions()
+	records, err := c.ListSessions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(sessions) != 2 || sessions[0] != "foo" || sessions[1] != "bar" {
-		t.Errorf("unexpected sessions: %v", sessions)
+	if len(records) != 1 {
+		t.Fatalf("len = %d, want 1", len(records))
+	}
+	rec := records[0]
+	if rec.Name != "myapp-feat" {
+		t.Errorf("Name = %q, want myapp-feat", rec.Name)
+	}
+	if rec.CanonicalName != "myapp-feat" {
+		t.Errorf("CanonicalName = %q, want myapp-feat", rec.CanonicalName)
+	}
+	if rec.SessionType != "agent" {
+		t.Errorf("SessionType = %q, want agent", rec.SessionType)
+	}
+	if rec.Status != "running" {
+		t.Errorf("Status = %q, want running", rec.Status)
+	}
+	if rec.Annotation != "doing stuff" {
+		t.Errorf("Annotation = %q, want doing stuff", rec.Annotation)
+	}
+	if rec.StartedAt != "2026-01-01T00:00:00Z" {
+		t.Errorf("StartedAt = %q, want 2026-01-01T00:00:00Z", rec.StartedAt)
+	}
+}
+
+func TestClient_ListSessions_prefixedAndShell(t *testing.T) {
+	lines := "⚡ myapp-feat\tmyapp-feat\tagent\twaiting\tneed input\t\n" +
+		"myapp-feat~sh\tmyapp-feat\tshell\t\t\t\n"
+	r := &mockRunner{exitCode: 0, stdout: lines}
+	c := tmux.NewClient(r)
+	records, err := c.ListSessions()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("len = %d, want 2", len(records))
+	}
+	if records[0].Name != "⚡ myapp-feat" {
+		t.Errorf("records[0].Name = %q", records[0].Name)
+	}
+	if records[0].CanonicalName != "myapp-feat" {
+		t.Errorf("records[0].CanonicalName = %q", records[0].CanonicalName)
+	}
+	if records[1].SessionType != "shell" {
+		t.Errorf("records[1].SessionType = %q, want shell", records[1].SessionType)
+	}
+}
+
+func TestClient_ListSessions_nonDevenv(t *testing.T) {
+	// Non-devenv sessions have empty option fields.
+	r := &mockRunner{exitCode: 0, stdout: "other-session\t\t\t\t\t\n"}
+	c := tmux.NewClient(r)
+	records, err := c.ListSessions()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("len = %d, want 1", len(records))
+	}
+	if records[0].CanonicalName != "" {
+		t.Errorf("CanonicalName = %q, want empty", records[0].CanonicalName)
+	}
+	if records[0].SessionType != "" {
+		t.Errorf("SessionType = %q, want empty", records[0].SessionType)
 	}
 }
 
@@ -131,18 +194,14 @@ func TestClient_KillSession_execError(t *testing.T) {
 }
 
 func TestClient_ListSessions_format(t *testing.T) {
-	r := &mockRunner{exitCode: 0, stdout: "mysession\n"}
+	r := &mockRunner{exitCode: 0, stdout: "s\t\t\t\t\t\n"}
 	c := tmux.NewClient(r)
 	_, _ = c.ListSessions()
-	found := false
-	for _, arg := range r.lastArgs {
-		if arg == "#{session_name}" {
-			found = true
-			break
+	argStr := fmt.Sprintf("%v", r.lastArgs)
+	for _, want := range []string{"#{session_name}", "#{@devenv_canonical_name}", "#{@devenv_session_type}"} {
+		if !strings.Contains(argStr, want) {
+			t.Errorf("expected %q in args %s", want, argStr)
 		}
-	}
-	if !found {
-		t.Errorf("expected -F #{session_name} in args, got %v", r.lastArgs)
 	}
 }
 
@@ -352,5 +411,39 @@ func TestSetOption_runnerError(t *testing.T) {
 	err := c.SetOption("myapp-feat", "@devenv_status", "running")
 	if err == nil {
 		t.Error("SetOption() should return error when runner fails")
+	}
+}
+
+func TestRenameSession(t *testing.T) {
+	r := &mockRunner{}
+	c := tmux.NewClient(r)
+
+	err := c.RenameSession("old-name", "new-name")
+	if err != nil {
+		t.Fatalf("RenameSession() error = %v", err)
+	}
+	want := []string{"rename-session", "-t", "old-name", "new-name"}
+	if !slices.Equal(r.lastArgs, want) {
+		t.Errorf("args = %v, want %v", r.lastArgs, want)
+	}
+}
+
+func TestRenameSession_Error(t *testing.T) {
+	r := &mockRunner{exitCode: 1, stderr: "no such session"}
+	c := tmux.NewClient(r)
+
+	err := c.RenameSession("old", "new")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRenameSession_runnerError(t *testing.T) {
+	r := &mockRunner{err: errors.New("boom")}
+	c := tmux.NewClient(r)
+
+	err := c.RenameSession("old", "new")
+	if err == nil {
+		t.Fatal("expected error when runner fails")
 	}
 }

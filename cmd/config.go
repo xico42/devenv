@@ -75,10 +75,6 @@ var configShowCmd = &cobra.Command{
 			}
 		}
 
-		if cfg.Notify.Provider != "" {
-			fmt.Fprintln(w, "\n[notify]")
-			fmt.Fprintf(w, "  provider\t= %q\n", cfg.Notify.Provider)
-		}
 		return w.Flush()
 	},
 }
@@ -141,11 +137,6 @@ func getConfigValue(c *config.Config, dotPath string) (string, bool, error) {
 			return "", false, fmt.Errorf("project %q not found", parts[1])
 		}
 		return fieldFromStruct(proj, parts[2])
-	case "notify":
-		if parts[1] == "provider" {
-			return c.Notify.Provider, false, nil
-		}
-		return "", false, fmt.Errorf("use 'config show' for nested notify values")
 	}
 	return "", false, fmt.Errorf("unknown key %q", dotPath)
 }

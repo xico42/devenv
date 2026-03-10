@@ -133,6 +133,44 @@ func TestDelegate_Render_agentNoSpecificStatus(t *testing.T) {
 	}
 }
 
+func TestDelegate_Render_annotationShort(t *testing.T) {
+	d := newDelegate()
+	ann := "short annotation"
+	m := list.New([]list.Item{
+		Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true, AgentStatus: semconv.StatusWaiting, Annotation: ann},
+	}, d, 80, 10)
+
+	var buf bytes.Buffer
+	d.Render(&buf, m, 0, m.Items()[0])
+	out := buf.String()
+
+	if !strings.Contains(out, ann) {
+		t.Errorf("render missing annotation %q, got: %q", ann, out)
+	}
+}
+
+func TestDelegate_Render_annotationTruncated(t *testing.T) {
+	d := newDelegate()
+	// 70-char string — should be truncated to first 57 chars + "..."
+	ann := strings.Repeat("x", 70)
+	want := strings.Repeat("x", 57) + "..."
+
+	m := list.New([]list.Item{
+		Item{Project: "myapp", Branch: "feat", Group: groupAgent, HasAgent: true, AgentStatus: semconv.StatusWaiting, Annotation: ann},
+	}, d, 80, 10)
+
+	var buf bytes.Buffer
+	d.Render(&buf, m, 0, m.Items()[0])
+	out := buf.String()
+
+	if !strings.Contains(out, want) {
+		t.Errorf("render missing truncated annotation %q, got: %q", want, out)
+	}
+	if strings.Contains(out, ann) {
+		t.Errorf("render should not contain full annotation (should be truncated), got: %q", out)
+	}
+}
+
 func TestDelegate_Render_noBranch(t *testing.T) {
 	d := newDelegate()
 	m := list.New([]list.Item{

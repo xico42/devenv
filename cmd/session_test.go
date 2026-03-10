@@ -77,22 +77,6 @@ func TestSessionShow_tooFewArgs(t *testing.T) {
 	}
 }
 
-func TestSessionMarkRunning_noSession(t *testing.T) {
-	cfgPath := writeSessionConfig(t, t.TempDir())
-	// mark-running with empty --session should succeed silently
-	if err := runCmd(t, "--config", cfgPath, "session", "mark-running"); err != nil {
-		t.Fatalf("mark-running without --session should succeed: %v", err)
-	}
-}
-
-func TestSessionMarkRunning_withSession(t *testing.T) {
-	cfgPath := writeSessionConfig(t, t.TempDir())
-	// mark-running with a non-existent session file should succeed silently
-	if err := runCmd(t, "--config", cfgPath, "session", "mark-running", "--session", "nonexistent"); err != nil {
-		t.Fatalf("mark-running with missing state file should succeed: %v", err)
-	}
-}
-
 // TestSessionStart_noCreateFlag_recognized verifies --no-create is a known flag.
 // Before the flag is wired, Cobra returns "unknown flag: --no-create".
 // After wiring, the command proceeds past flag parsing and fails on the

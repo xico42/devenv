@@ -23,7 +23,7 @@ type Item struct {
 	Group       int
 	HasAgent    bool
 	AgentStatus string // "running", "waiting", ""
-	Question    string
+	Annotation  string
 	HasShell    bool
 	Cloned      bool
 	IsMain      bool // true for the main worktree (clone dir)
@@ -40,7 +40,7 @@ func (i Item) FilterValue() string {
 type refreshResult struct {
 	worktrees     []wtEntry
 	agentSessions map[string]agentInfo // keyed by session name (project-branch)
-	shellSessions map[string]bool      // keyed by shell session name (project-branch~sh)
+	shellSessions map[string]bool      // keyed by canonical session name (project-branch)
 	projects      []projEntry
 	cloneDirs     map[string]string // project name -> clone dir path
 }
@@ -52,8 +52,8 @@ type wtEntry struct {
 }
 
 type agentInfo struct {
-	status   string
-	question string
+	status     string
+	annotation string
 }
 
 type projEntry struct {
@@ -71,13 +71,12 @@ func buildItems(data refreshResult) []list.Item {
 		projectHasWorktree[wt.project] = true
 
 		sessionName := semconv.SessionName(wt.project, wt.branch)
-		shellName := semconv.ShellSessionName(wt.project, wt.branch)
 
 		item := Item{
 			Project:  wt.project,
 			Branch:   wt.branch,
 			Path:     wt.path,
-			HasShell: data.shellSessions[shellName],
+			HasShell: data.shellSessions[sessionName],
 			IsMain:   data.cloneDirs[wt.project] == wt.path,
 		}
 
@@ -85,7 +84,7 @@ func buildItems(data refreshResult) []list.Item {
 			item.Group = groupAgent
 			item.HasAgent = true
 			item.AgentStatus = agent.status
-			item.Question = agent.question
+			item.Annotation = agent.annotation
 		} else {
 			item.Group = groupWorktree
 		}
@@ -107,6 +106,14 @@ func buildItems(data refreshResult) []list.Item {
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Group != items[j].Group {
 			return items[i].Group < items[j].Group
+		}
+		// Within agent group, waiting sorts before running
+		if items[i].Group == groupAgent {
+			iWaiting := items[i].AgentStatus == semconv.StatusWaiting
+			jWaiting := items[j].AgentStatus == semconv.StatusWaiting
+			if iWaiting != jWaiting {
+				return iWaiting
+			}
 		}
 		if items[i].Project != items[j].Project {
 			return items[i].Project < items[j].Project
